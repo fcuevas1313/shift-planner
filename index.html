@@ -176,6 +176,7 @@ input[type=text],input[type=number],input[type=date],input[type=time],select,tex
 textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:vertical}
 .seg{display:flex;background:var(--surface-2);border-radius:9px;padding:3px;gap:3px}
 .seg button{flex:1;border:0;background:transparent;padding:7px 8px;border-radius:7px;font-weight:600;font-size:13px;color:var(--muted)}
+.seg.roles{display:grid;grid-template-columns:1fr 1fr}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 .days{display:flex;gap:4px;flex-wrap:wrap}
 .days button{width:40px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600;color:var(--muted)}
@@ -263,6 +264,15 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const MGR = r => r === 'MOD' || r === 'ABOM' || r === 'BOM';
 const NOHOURS = r => r === 'ABOM' || r === 'BOM';
+/* Display names for manager levels. Internally the roles stay MOD / ABOM / BOM. */
+const ROLE_DEFAULTS = {MOD: 'Manager lvl 1', ABOM: 'Manager lvl 2', BOM: 'Manager lvl 3', any: 'Manager'};
+const ROLE_ORIGINAL = {MOD: 'MOD', ABOM: 'ABOM', BOM: 'BOM', any: 'MOD'};
+const RN = r => r === 'Associate' ? 'Associate' : ((S.roleNames && S.roleNames[r]) || ROLE_DEFAULTS[r] || r);
+const plural = w => /s$/i.test(w) ? w : w + 's';
+const ANY = () => RN('any'), ANYS = () => plural(RN('any'));
+/* Short form for tight spots (grid tags): the name itself if short, else initials plus numbers ("Manager lvl 1" -> "ML1"). */
+const SHORT = w => { if (w.length <= 5) return w; const t = w.match(/\d+|[A-Za-z]+/g) || [w]; return t.length > 1 ? t.map(x => /\d/.test(x) ? x : x[0].toUpperCase()).join('').slice(0, 5) : w.slice(0, 5); };
+function migrate(st) { if (st && !st.roleNames) st.roleNames = Object.assign({}, ROLE_ORIGINAL); return st; }
 const isExtra = v => typeof v === 'string' && v.charCodeAt(0) === 120 && v[1] === ':';
 const isWork = v => v === 'open' || v === 'close' || v === 'mid' || v === 'custom' || isExtra(v);
 const dayGroup = d => d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday';
@@ -322,6 +332,7 @@ function defaultState() {
       sun:     {modOpen: ['11:00', '18:00'], open: ['11:00', '19:00'], close: ['12:00', '20:00'], modClose: ['13:00', '20:00'], mid: ['12:00', '19:00']}
     },
     extraShifts: [],
+    roleNames: Object.assign({}, ROLE_DEFAULTS),
     weeks: {},
     ui: {week: ref},
     pristine: true,
@@ -332,7 +343,7 @@ let storageOK = true, firstRun = false;
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) { const s = JSON.parse(raw); if (s && Array.isArray(s.people) && s.shifts) return s; }
+    if (raw) { const s = JSON.parse(raw); if (s && Array.isArray(s.people) && s.shifts) return migrate(s); }
   } catch (e) { storageOK = false; }
   firstRun = true;
   return defaultState();
@@ -377,7 +388,7 @@ async function cloudInit() {
       const ws = await withTimeout(Cloud.base.collection('weeks').get(), 12000);
       const weeks = {};
       ws.docs.forEach(d => { const x = d.data(); if (x && x.cells) { weeks[d.id] = {cells: JSON.parse(JSON.stringify(x.cells)), locks: JSON.parse(JSON.stringify(x.locks || {}))}; Cloud.weekStr[d.id] = JSON.stringify(weeks[d.id]); } });
-      S = Object.assign(JSON.parse(JSON.stringify(remote.config)), {weeks});
+      S = migrate(Object.assign(JSON.parse(JSON.stringify(remote.config)), {weeks}));
       S.pristine = false; S.savedAt = remote.savedAt || Date.now();
       Cloud.configStr = JSON.stringify(configOf(S));
       syncExtra(); UI.week = (S.ui && S.ui.week) || UI.week;
@@ -534,10 +545,10 @@ function evaluate(ctx, cells, explain) {
     if (maxO > 0 && o > maxO) add(150 * (o - maxO), 'note', () => `${DAYS_LONG[d]} has ${o} openers. Try to keep it to ${maxO} or fewer.`, [['day', d]]);
     if (un > 0) add(300 * un, 'rule', () => `${DAYS_LONG[d]} has ${o} opener${o === 1 ? '' : 's'} and ${c} closer${c === 1 ? '' : 's'}${m ? ' plus ' + m + ' mid' : ''}. It needs ${st.minOpen} and ${st.minClose}.`, [['day', d]]);
     else if (cov > 0 && explain) { const T = S.shifts[d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday'].mid; issues.push({sev: 'note', msg: `${DAYS_LONG[d]} uses a mid shift (${fmtRange(T[0], T[1])}) to cover a missing ${dO ? 'opener' : 'closer'}.`, refs: [['day', d]]}); }
-    if (!modO) add(200, 'rule', () => `${DAYS_LONG[d]} has no opening MOD.`, [['day', d]]);
-    if (!modC) add(200, 'rule', () => `${DAYS_LONG[d]} has no closing MOD.`, [['day', d]]);
-    if ((d === 0 || d === 6) && modCn > 1) add(300 * (modCn - 1), 'rule', () => `${DAYS_LONG[d]} has ${modCn} MODs closing. Weekends have one closing MOD.`, [['day', d]]);
-    else if (d > 0 && d < 6 && modCn > 2) add(300 * (modCn - 2), 'rule', () => `${DAYS_LONG[d]} has ${modCn} MODs closing. Weekdays have at most 2.`, [['day', d]]);
+    if (!modO) add(200, 'rule', () => `${DAYS_LONG[d]} has no opening ${ANY()}.`, [['day', d]]);
+    if (!modC) add(200, 'rule', () => `${DAYS_LONG[d]} has no closing ${ANY()}.`, [['day', d]]);
+    if ((d === 0 || d === 6) && modCn > 1) add(300 * (modCn - 1), 'rule', () => `${DAYS_LONG[d]} has ${modCn} ${ANYS()} closing. Weekends have one closing ${ANY()}.`, [['day', d]]);
+    else if (d > 0 && d < 6 && modCn > 2) add(300 * (modCn - 2), 'rule', () => `${DAYS_LONG[d]} has ${modCn} ${ANYS()} closing. Weekdays have at most 2.`, [['day', d]]);
   }
   let identical = ctx.hasPrev;
   for (let i = 0; i < n; i++) {
@@ -565,7 +576,7 @@ function evaluate(ctx, cells, explain) {
     if (!p.isMod && maxR > 5) add(1000 * (maxR - 5), 'rule', () => `${p.name} works ${maxR} days in a row${p.carry ? ', counting the end of last week' : ''}. The limit is 5.`, [[p.id, 'row']]);
     else if (!p.isMod && maxR === 5 && p.prevFive) add(150, 'note', () => `${p.name} works 5 days in a row for the second week running.`, [[p.id, 'row']]);
     if (p.type === 'FT' && p.target >= 4 && p.isMod && p.closable >= 2) {
-      if (closes !== 2) add(100 * Math.abs(closes - 2), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. MODs close 2 times a week.`, [[p.id, 'row']]);
+      if (closes !== 2) add(100 * Math.abs(closes - 2), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. ${ANYS()} close 2 times a week.`, [[p.id, 'row']]);
     } else if (p.type === 'FT' && p.target >= 4 && p.closable >= 2) {
       if (closes < 2) add(60 * (2 - closes), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. The usual pattern is 2 or 3.`, [[p.id, 'row']]);
       if (closes > 3) add(60 * (closes - 3), 'note', () => `${p.name} closes ${closes} times. The usual pattern is 2 or 3.`, [[p.id, 'row']]);
@@ -727,7 +738,7 @@ function infoChips(ctx) {
   const off = [...ctx.offSet].map(id => personById(id)).filter(Boolean).map(p => esc(p.name));
   return `<div class="info">
     <span class="chip">Weekend off (Sat + next Sun): <b>${off.length ? off.join(', ') : 'nobody'}</b></span>
-    <span class="chip">MODs off Fri–Sat: <b>Group ${ctx.modOff}</b></span>
+    <span class="chip">${esc(ANYS())} off Fri–Sat: <b>Group ${ctx.modOff}</b></span>
     <span class="chip">${ctx.hasPrev ? 'Streaks include last week' : 'Last week not built here, so streaks start fresh'}</span>
   </div>`;
 }
@@ -752,13 +763,14 @@ function renderSchedule() {
   h += `</tr></thead><tbody>`;
   ctx.P.forEach((p, i) => {
     const per = S.people[i];
-    h += `<tr><th class="namecol"><div class="pname ${flagRow.has(p.id) ? 'flag' : ''}">${esc(p.name)}${p.isMod ? `<span class="tag">${esc(p.role)}${per.modGroup === 'none' ? '' : ' ' + esc(per.modGroup)}</span>` : ''}${p.type === 'PT' ? '<span class="tag">PT</span>' : ''}</div><div class="pmeta">${fmtH(ps[i].h)}h / ${p.maxHours}</div></th>`;
+    h += `<tr><th class="namecol"><div class="pname ${flagRow.has(p.id) ? 'flag' : ''}">${esc(p.name)}${p.isMod ? `<span class="tag">${esc(SHORT(RN(p.role)))}${per.modGroup === 'none' ? '' : ' ' + esc(per.modGroup)}</span>` : ''}${p.type === 'PT' ? '<span class="tag">PT</span>' : ''}</div><div class="pmeta">${fmtH(ps[i].h)}h / ${p.maxHours}</div></th>`;
     for (let d = 0; d < 7; d++) {
       const v = wk.cells[p.id][d], k = kindOf(p, d, v), t = isWork(v) ? timesFor(p, d, v, ds[d].moId) : null;
       let label = LABEL[k] || 'Off';
-      if (p.isMod && v === 'open' && ds[d].moId === p.id) label = 'MOD';
+      let moMark = false;
+      if (p.isMod && v === 'open' && ds[d].moId === p.id) { if (ANY().length <= 5) label = ANY(); else moMark = true; }
       const cls = v === 'pto' ? 'pto' : isWork(v) ? k : 'off';
-      h += `<td><button class="cell ${cls} ${flagCell.has(p.id + ':' + d) ? 'flag' : ''}" data-act="cell" data-pid="${p.id}" data-d="${d}" aria-label="${esc(p.name)} ${DAYS_LONG[d]}: ${label}${t ? ' ' + fmtRange(t[0], t[1]) : ''}">${v === 'custom' ? '<span class="lim">*</span>' : ''}${wk.locks[p.id][d] ? LOCK_SVG : ''}<span class="k">${label}</span>${t ? `<span class="t">${fmtRange(t[0], t[1])}</span>` : ''}</button></td>`;
+      h += `<td><button class="cell ${cls} ${flagCell.has(p.id + ':' + d) ? 'flag' : ''}" data-act="cell" data-pid="${p.id}" data-d="${d}" aria-label="${esc(p.name)} ${DAYS_LONG[d]}: ${label}${t ? ' ' + fmtRange(t[0], t[1]) : ''}">${v === 'custom' ? '<span class="lim">*</span>' : ''}${moMark ? '<span class="lim">●</span>' : ''}${wk.locks[p.id][d] ? LOCK_SVG : ''}<span class="k">${label}</span>${t ? `<span class="t">${fmtRange(t[0], t[1])}</span>` : ''}</button></td>`;
     }
     h += `</tr>`;
   });
@@ -768,16 +780,16 @@ function renderSchedule() {
   h += `<tr><th class="namecol">Closers</th>${ds.map(x => `<td class="${x.c < st.minClose ? 'short' : ''}">${x.c}</td>`).join('')}</tr>`;
   if (ds.some(x => x.m)) h += `<tr><th class="namecol">Mids</th>${ds.map(x => `<td>${x.m || ''}</td>`).join('')}</tr>`;
   h += `</tfoot></table></div>`;
-  h += `<div class="legend"><span><span class="sw" style="background:var(--open-bg)"></span>Open</span><span><span class="sw" style="background:var(--close-bg)"></span>Close</span><span><span class="sw" style="background:var(--mid-bg)"></span>Mid</span><span><span class="sw" style="background:var(--pto-bg)"></span>Time off</span><span>MOD = opening MOD</span><span>* = limited hours</span><span>Tap a shift to change it. Changed shifts get locked so Shuffle keeps them.</span></div>`;
+  h += `<div class="legend"><span><span class="sw" style="background:var(--open-bg)"></span>Open</span><span><span class="sw" style="background:var(--close-bg)"></span>Close</span><span><span class="sw" style="background:var(--mid-bg)"></span>Mid</span><span><span class="sw" style="background:var(--pto-bg)"></span>Time off</span><span>${ANY().length <= 5 ? esc(ANY()) : '●'} = opening ${esc(ANY())}</span><span>* = limited hours</span><span>Tap a shift to change it. Changed shifts get locked so Shuffle keeps them.</span></div>`;
   if (ev.issues.length) {
     h += `<div class="card"><h2>Check before you finalize</h2><p class="sub">Red items break a rule. Amber items are worth a look.</p><ul class="issues">${[...rules, ...notes].map(x => `<li class="${x.sev}"><span class="dot"></span><span>${esc(x.msg)}</span></li>`).join('')}</ul></div>`;
   }
   h += `<div class="cols">
     <div class="card"><h2>Each person</h2><p class="sub">Opens, closes and days off this week.</p><div class="scrollx"><table class="tally"><thead><tr><th>Name</th><th>Open</th><th>Close</th><th>Mid</th><th>Off</th><th>Hours</th></tr></thead><tbody>
-    ${ctx.P.map((p, i) => `<tr><td class="txt">${esc(p.name)}${p.isAbom ? ` <span class="tag">${esc(p.role)}</span>` : ''}</td><td>${ps[i].o}</td><td>${ps[i].c}</td><td>${ps[i].m || ''}</td><td>${ps[i].off}</td><td class="${ps[i].h > p.maxHours ? 'short' : ''}"${p.isAbom ? ' style="opacity:.55"' : ''}>${fmtH(ps[i].h)}</td></tr>`).join('')}
-    <tr class="total"><td class="txt"><b>Team total</b>${ctx.P.some(p => p.isAbom) ? '<div class="small muted">Not counting ABOM/BOM</div>' : ''}</td><td colspan="4"></td><td><b>${fmtH(teamHours)}</b></td></tr>
+    ${ctx.P.map((p, i) => `<tr><td class="txt">${esc(p.name)}${p.isAbom ? ` <span class="tag">${esc(SHORT(RN(p.role)))}</span>` : ''}</td><td>${ps[i].o}</td><td>${ps[i].c}</td><td>${ps[i].m || ''}</td><td>${ps[i].off}</td><td class="${ps[i].h > p.maxHours ? 'short' : ''}"${p.isAbom ? ' style="opacity:.55"' : ''}>${fmtH(ps[i].h)}</td></tr>`).join('')}
+    <tr class="total"><td class="txt"><b>Team total</b>${ctx.P.some(p => p.isAbom) ? `<div class="small muted">Not counting ${esc(RN('ABOM'))} or ${esc(RN('BOM'))}</div>` : ''}</td><td colspan="4"></td><td><b>${fmtH(teamHours)}</b></td></tr>
     </tbody></table></div></div>
-    <div class="card"><h2>Each day</h2><p class="sub">Coverage and who is MOD.</p><div class="scrollx"><table class="tally"><thead><tr><th>Day</th><th>Open</th><th>Close</th><th>Opening MOD</th><th>Closing MOD</th></tr></thead><tbody>
+    <div class="card"><h2>Each day</h2><p class="sub">Coverage and who is ${esc(ANY())}.</p><div class="scrollx"><table class="tally"><thead><tr><th>Day</th><th>Open</th><th>Close</th><th>Opening ${esc(ANY())}</th><th>Closing ${esc(ANY())}</th></tr></thead><tbody>
     ${ds.map((x, d) => `<tr><td class="txt">${DAYS[d]}</td><td class="${x.o < st.minOpen ? 'short' : ''}">${x.o}</td><td class="${x.c < st.minClose ? 'short' : ''}">${x.c}</td><td class="txt ${x.modOpen ? '' : 'short'}">${x.modOpen ? esc(x.modOpen) : 'None'}</td><td class="txt ${x.modClose.length ? '' : 'short'}">${x.modClose.length ? x.modClose.map(esc).join(', ') : 'None'}</td></tr>`).join('')}
     </tbody></table></div></div>
   </div>`;
@@ -795,9 +807,9 @@ function limitSummary(r) {
 function renderTeam() {
   const mods = S.people.filter(p => MGR(p.role)).length;
   let h = banners();
-  h += `<div class="weekbar"><div><h2 style="margin:0;font-size:18px">Team</h2><span class="small muted">${S.people.length} people · ${mods} MODs · ${S.people.filter(p => p.type === 'FT').length} full-time</span></div><div class="actions"><button class="btn primary" data-act="add-person">Add person</button></div></div>`;
+  h += `<div class="weekbar"><div><h2 style="margin:0;font-size:18px">Team</h2><span class="small muted">${S.people.length} people · ${mods} ${esc(mods === 1 ? ANY() : ANYS())} · ${S.people.filter(p => p.type === 'FT').length} full-time</span></div><div class="actions"><button class="btn primary" data-act="add-person">Add person</button></div></div>`;
   h += `<div class="people">${S.people.map(p => `<button class="person" data-act="edit-person" data-id="${p.id}">
-    <div class="main"><div class="nm">${esc(p.name)} ${MGR(p.role) ? `<span class="tag">${esc(p.role)} · ${p.modGroup === 'none' ? 'OWN SCHEDULE' : 'GROUP ' + esc(p.modGroup)}</span>${NOHOURS(p.role) ? ' <span class="tag">HOURS NOT COUNTED</span>' : ''}` : '<span class="tag">ASSOCIATE</span>'} <span class="tag">${p.type}</span></div>
+    <div class="main"><div class="nm">${esc(p.name)} ${MGR(p.role) ? `<span class="tag">${esc(RN(p.role))} · ${p.modGroup === 'none' ? 'OWN SCHEDULE' : 'GROUP ' + esc(p.modGroup)}</span>${NOHOURS(p.role) ? ' <span class="tag">HOURS NOT COUNTED</span>' : ''}` : '<span class="tag">ASSOCIATE</span>'} <span class="tag">${p.type}</span></div>
     <div class="ds">Up to ${p.maxHours} hours · ${p.daysPerWeek} days a week${p.timeOff.length ? ' · ' + p.timeOff.length + ' day' + (p.timeOff.length === 1 ? '' : 's') + ' off booked' : ''}</div>
     ${p.restrictions.length ? `<div class="lims">${p.restrictions.map(r => esc(limitSummary(r))).join('<br>')}</div>` : ''}</div>
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`).join('')}</div>`;
@@ -813,14 +825,19 @@ function renderRules() {
   let h = banners() + weekBar(false);
   h += `<p class="small muted" style="margin:0">Rotation settings below are shown for the week above. Use the arrows to check other weeks.</p>`;
   h += `<div class="cols">`;
-  h += `<div class="card"><h2>Coverage</h2><p class="sub">Minimums for every day. MODs count toward these.</p><div class="row">
+  const rnField = (k, label) => `<div class="field"><label for="rn-${k}">${label}</label><input type="text" id="rn-${k}" maxlength="24" autocomplete="off" value="${esc(RN(k))}" data-chg="rolename" data-k="${k}"></div>`;
+  h += `<div class="card"><h2>Role names</h2><p class="sub">Rename the manager levels to match your workplace. Everyone's settings stay the same. Level 2 and level 3 hours aren't counted in team hours.</p>
+    <div class="row">${rnField('MOD', 'Manager level 1')}${rnField('ABOM', 'Manager level 2')}</div>
+    <div class="row">${rnField('BOM', 'Manager level 3')}${rnField('any', 'General term')}</div>
+    <p class="small muted" style="margin:0">The general term covers every manager level in messages like "Monday has no opening ${esc(ANY())}".</p></div>`;
+  h += `<div class="card"><h2>Coverage</h2><p class="sub">Minimums for every day. ${esc(ANYS())} count toward these.</p><div class="row">
     <div class="field"><label for="minOpen">Openers needed</label><input type="number" id="minOpen" min="0" max="20" value="${st.minOpen}" data-chg="setting" data-k="minOpen"></div>
     <div class="field"><label for="minClose">Closers needed</label><input type="number" id="minClose" min="0" max="20" value="${st.minClose}" data-chg="setting" data-k="minClose"></div></div>
     <div class="field" style="max-width:260px"><label for="maxOpen">Most openers on one day</label><input type="number" id="maxOpen" min="0" max="20" value="${st.maxOpen == null ? 6 : st.maxOpen}" data-chg="setting" data-k="maxOpen"></div>
     <p class="small muted" style="margin:0 0 8px">Shuffle spreads extra openers evenly across the week and tries to stay at or under this number. Set it to 0 to turn the limit off.</p>
     <p class="small muted" style="margin:0">If a day falls short, Shuffle adds a mid shift to fill the gap.</p></div>`;
   const gtxt = g => ctx.modOff === g ? 'Works Sun–Thu, off Fri and Sat (and next Sunday)' : 'Off Sunday and their set weekday, works Fri and Sat';
-  h += `<div class="card"><h2>MOD weekends</h2><p class="sub">The two groups alternate a two-week cycle. MODs aren't held to the 5-days-in-a-row limit.</p>
+  h += `<div class="card"><h2>${esc(ANY())} weekends</h2><p class="sub">The two groups alternate a two-week cycle. ${esc(ANYS())} aren't held to the 5-days-in-a-row limit.</p>
     <div class="groups"><div class="group ${ctx.modOff === 'A' ? 'offnow' : ''}"><b>Group A · ${ctx.modOff === 'A' ? 'weekend off' : 'working weekend'}</b><span>${A}</span><span style="display:block;margin-top:4px;font-size:12px">${gtxt('A')}</span></div><div class="group ${ctx.modOff === 'B' ? 'offnow' : ''}"><b>Group B · ${ctx.modOff === 'B' ? 'weekend off' : 'working weekend'}</b><span>${B}</span><span style="display:block;margin-top:4px;font-size:12px">${gtxt('B')}</span></div></div>
     ${S.people.some(p => MGR(p.role) && p.modGroup === 'none') ? `<p class="small muted" style="margin:8px 0 0">Own schedule (not in a group): ${S.people.filter(p => MGR(p.role) && p.modGroup === 'none').map(p => esc(p.name)).join(', ')}</p>` : ''}
     <div class="confirm"><button class="btn small" data-act="mod-flip">Switch which group is off</button></div></div>`;
@@ -832,7 +849,7 @@ function renderRules() {
     <p style="margin:0 0 8px">The week of <b>${weekLabel(UI.week)}</b> is <b>Week ${ctx.par}</b>.</p><button class="btn small" data-act="parity-flip">Switch A and B</button></div>`;
   h += `</div>`;
   h += `<div class="card"><h2>Shift times</h2><p class="sub">Lunch is subtracted automatically: none under 6 hours, 30 minutes for 6–7 hours, 1 hour over 7.</p><div class="cols">`;
-  const ROWS = [['modOpen', 'Opening MOD'], ['open', 'Opening'], ['close', 'Closing'], ['modClose', 'Closing MOD'], ['mid', 'Mid (fills gaps)']];
+  const ROWS = [['modOpen', 'Opening ' + esc(ANY())], ['open', 'Opening'], ['close', 'Closing'], ['modClose', 'Closing ' + esc(ANY())], ['mid', 'Mid (fills gaps)']];
   for (const [g, gl] of [['weekday', 'Mon–Fri'], ['sat', 'Saturday'], ['sun', 'Sunday']]) {
     h += `<div><h3>${gl}</h3><table class="shifttbl"><thead><tr><th>Shift</th><th>Start</th><th>End</th><th>Paid</th></tr></thead><tbody>`;
     for (const [k, kl] of ROWS) {
@@ -879,7 +896,7 @@ function renderSheet() {
     h += `<div class="opts">${vals.map(v => {
       const k = kindOf(p, d, v), t = timesFor(p, d, v, mo);
       const bad = !p.allowed[d].includes(baseOf(p, d, v)) && v !== 'off';
-      const lbl = v === 'custom' ? 'Limited hours' : isExtra(v) ? LABEL[k] + ' (extra)' : (v === 'open' && p.isMod && mo === p.id ? 'Open (MOD)' : LABEL[v]);
+      const lbl = v === 'custom' ? 'Limited hours' : isExtra(v) ? LABEL[k] + ' (extra)' : (v === 'open' && p.isMod && mo === p.id ? 'Open (' + esc(ANY()) + ')' : LABEL[v]);
       return `<button class="opt ${v === 'pto' ? 'pto' : isWork(v) ? k : 'off'}" data-act="set-cell" data-v="${v}" aria-pressed="${cur === v}"><span class="k">${lbl}</span><span class="t">${t ? fmtRange(t[0], t[1]) : v === 'pto' ? 'Time off' : 'Day off'}</span>${bad ? '<span class="why">Breaks a limit</span>' : ''}</button>`;
     }).join('')}</div>`;
     h += `<label class="check"><input type="checkbox" id="lockcell" data-chg="lock" ${wk.locks[p.id][d] ? 'checked' : ''}> Keep this shift when shuffling</label>`;
@@ -888,11 +905,11 @@ function renderSheet() {
   if (s.type === 'person') {
     const p = personById(s.id); if (!p) { closeSheet(); return; }
     const inRot = S.rotation.includes(p.id);
-    let h = head('Edit ' + esc(p.name), p.role === 'MOD' ? 'Manager on duty' : NOHOURS(p.role) ? p.role : 'Associate');
+    let h = head('Edit ' + esc(p.name), esc(RN(p.role)));
     h += `<div class="field"><label for="p-name">Name or nickname</label><input type="text" id="p-name" value="${esc(p.name)}" data-chg="p-name" maxlength="24" autocomplete="off"></div>`;
-    h += `<div class="row"><div class="field" style="flex-basis:100%"><span class="flabel">Role</span><div class="seg"><button data-act="p-role" data-v="Associate" aria-pressed="${p.role === 'Associate'}">Associate</button><button data-act="p-role" data-v="MOD" aria-pressed="${p.role === 'MOD'}">MOD</button><button data-act="p-role" data-v="ABOM" aria-pressed="${p.role === 'ABOM'}">ABOM</button><button data-act="p-role" data-v="BOM" aria-pressed="${p.role === 'BOM'}">BOM</button></div></div>
+    h += `<div class="row"><div class="field" style="flex-basis:100%"><span class="flabel">Role</span><div class="seg roles"><button data-act="p-role" data-v="Associate" aria-pressed="${p.role === 'Associate'}">Associate</button><button data-act="p-role" data-v="MOD" aria-pressed="${p.role === 'MOD'}">${esc(RN('MOD'))}</button><button data-act="p-role" data-v="ABOM" aria-pressed="${p.role === 'ABOM'}">${esc(RN('ABOM'))}</button><button data-act="p-role" data-v="BOM" aria-pressed="${p.role === 'BOM'}">${esc(RN('BOM'))}</button></div></div>
       <div class="field"><span class="flabel">Status</span><div class="seg"><button data-act="p-type" data-v="FT" aria-pressed="${p.type === 'FT'}">Full-time</button><button data-act="p-type" data-v="PT" aria-pressed="${p.type === 'PT'}">Part-time</button></div></div></div>`;
-    if (MGR(p.role)) h += (NOHOURS(p.role) ? `<p class="small muted" style="margin:0 0 12px">${p.role}s count as a MOD for opening and closing coverage, and their hours aren't included in the team total. Set the days and hours they work with availability limits below.</p>` : '') + `<div class="field"><span class="flabel">Weekend group</span><div class="seg"><button data-act="p-group" data-v="A" aria-pressed="${p.modGroup === 'A'}">Group A</button><button data-act="p-group" data-v="B" aria-pressed="${p.modGroup === 'B'}">Group B</button><button data-act="p-group" data-v="none" aria-pressed="${p.modGroup === 'none'}">Own schedule</button></div></div>`
+    if (MGR(p.role)) h += (NOHOURS(p.role) ? `<p class="small muted" style="margin:0 0 12px">${esc(plural(RN(p.role)))} count as ${/^[aeiou]/i.test(ANY()) ? 'an' : 'a'} ${esc(ANY())} for opening and closing coverage, and their hours aren't included in the team total. Set the days and hours they work with availability limits below.</p>` : '') + `<div class="field"><span class="flabel">Weekend group</span><div class="seg"><button data-act="p-group" data-v="A" aria-pressed="${p.modGroup === 'A'}">Group A</button><button data-act="p-group" data-v="B" aria-pressed="${p.modGroup === 'B'}">Group B</button><button data-act="p-group" data-v="none" aria-pressed="${p.modGroup === 'none'}">Own schedule</button></div></div>`
       + (p.modGroup === 'none' ? '' : `<div class="field" style="max-width:260px"><label for="p-midoff">Weekday off in their working-weekend week</label><select id="p-midoff" data-chg="p-midoff">${[1, 2, 3, 4, 5].map(d => `<option value="${d}" ${(p.modMidOff == null ? 4 : +p.modMidOff) === d ? 'selected' : ''}>${DAYS_LONG[d]}</option>`).join('')}</select></div>`);
     else h += `<label class="check" style="margin-bottom:12px"><input type="checkbox" id="p-rot" data-chg="p-rot" ${inRot ? 'checked' : ''}> In the associate weekend-off rotation</label>`;
     h += `<div class="row"><div class="field"><label for="p-max">Max hours a week</label><input type="number" id="p-max" min="0" max="60" step="0.5" value="${p.maxHours}" data-chg="p-max"></div>
@@ -992,7 +1009,7 @@ document.addEventListener('click', e => {
     case 'backup-open': openSheet({type: 'restore'}); break;
     case 'restore': {
       const msg = document.getElementById('restoreMsg');
-      try { const s = JSON.parse(document.getElementById('restoretext').value); if (!s || !Array.isArray(s.people) || !s.shifts || !s.settings) throw 0; S = s; S.weeks = S.weeks || {}; S.rotation = S.rotation || []; syncExtra(); UI.week = (S.ui && S.ui.week) || UI.week; save(); closeSheet(); toast('Backup restored'); }
+      try { const s = JSON.parse(document.getElementById('restoretext').value); if (!s || !Array.isArray(s.people) || !s.shifts || !s.settings) throw 0; S = migrate(s); S.weeks = S.weeks || {}; S.rotation = S.rotation || []; syncExtra(); UI.week = (S.ui && S.ui.week) || UI.week; save(); closeSheet(); toast('Backup restored'); }
       catch (err) { msg.textContent = "That doesn't look like a Shift Planner backup."; }
       break; }
     case 'reset-ask': UI.confirmReset = true; render(); break;
@@ -1013,6 +1030,7 @@ document.addEventListener('change', e => {
   const R = P && el.dataset.rid ? P.restrictions.find(r => r.id === el.dataset.rid) : null;
   const num = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
   if (k === 'setting') { S.settings[el.dataset.k] = num(el.value, 0, 20); save(); render(); return; }
+  if (k === 'rolename') { S.roleNames = Object.assign({}, ROLE_DEFAULTS, S.roleNames || {}); S.roleNames[el.dataset.k] = el.value.trim().slice(0, 24) || ROLE_DEFAULTS[el.dataset.k]; save(); render(); return; }
   if (k === 'restore-file') {
     const f = el.files && el.files[0]; if (!f) return;
     const r = new FileReader();
