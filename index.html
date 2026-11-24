@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Build weekly shift schedules that follow your store's rules.">
+<meta name="theme-color" content="#2d55c8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Shift Planner">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+img{max-width:100%}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<title>Shift Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one sticky header with week controls and tabs; a scrollable week grid as the main object; plain cards below for tallies and rules. */
+:root{
+  --bg:#f3f5f8; --surface:#ffffff; --surface-2:#eef1f6; --ink:#18202e; --muted:#5b6475; --line:#d9dee7;
+  --accent:#2d55c8; --accent-ink:#ffffff; --accent-soft:#e3e9fa;
+  --open-bg:#fff0d1; --open-fg:#7a4f00;
+  --close-bg:#e2e3fa; --close-fg:#35349a;
+  --mid-bg:#d6f1ec; --mid-fg:#0c6456;
+  --pto-bg:#fbe1e5; --pto-fg:#962036;
+  --off-fg:#8a93a3;
+  --bad:#b42318; --bad-soft:#fde8e6; --warn:#995200; --warn-soft:#fff1dc; --good:#1d7447; --good-soft:#e1f4e9;
+  --font-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11151d; --surface:#1a202b; --surface-2:#232a37; --ink:#e7ebf2; --muted:#9aa3b4; --line:#2f3746;
+  --accent:#7b9cf5; --accent-ink:#0f1626; --accent-soft:#25304a;
+  --open-bg:#3a2d10; --open-fg:#ffd27a;
+  --close-bg:#262650; --close-fg:#b9b8ff;
+  --mid-bg:#113a34; --mid-fg:#7fe0cf;
+  --pto-bg:#44202a; --pto-fg:#ffaebd;
+  --off-fg:#6c7586;
+  --bad:#ff8a7e; --bad-soft:#3d1f1d; --warn:#ffbe6b; --warn-soft:#3a2a12; --good:#7fd9a6; --good-soft:#163323;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#11151d; --surface:#1a202b; --surface-2:#232a37; --ink:#e7ebf2; --muted:#9aa3b4; --line:#2f3746;
+  --accent:#7b9cf5; --accent-ink:#0f1626; --accent-soft:#25304a;
+  --open-bg:#3a2d10; --open-fg:#ffd27a;
+  --close-bg:#262650; --close-fg:#b9b8ff;
+  --mid-bg:#113a34; --mid-fg:#7fe0cf;
+  --pto-bg:#44202a; --pto-fg:#ffaebd;
+  --off-fg:#6c7586;
+  --bad:#ff8a7e; --bad-soft:#3d1f1d; --warn:#ffbe6b; --warn-soft:#3a2a12; --good:#7fd9a6; --good-soft:#163323;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{background:var(--bg)}
+body{color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1040px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.top-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:10px 6px}
+.brand{font-weight:700;font-size:17px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.brand svg{color:var(--accent)}
+.tabs{display:flex;gap:4px;padding-block:4px 8px}
+.tab{flex:1;border:0;background:transparent;padding:8px 10px;border-radius:8px;font-weight:600;color:var(--muted)}
+.tab[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}
+main{padding-block:16px 48px;display:flex;flex-direction:column;gap:16px}
+
+.weekbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.weeknav{display:flex;align-items:center;gap:4px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:4px}
+.weeknav .lbl{min-width:0;padding:0 8px;text-align:center}
+.weeknav .lbl b{display:block;font-size:15px;white-space:nowrap}
+.weeknav .lbl span{font-size:12px;color:var(--muted)}
+.iconbtn{border:0;background:transparent;width:36px;height:36px;border-radius:8px;display:grid;place-items:center;color:var(--ink)}
+.iconbtn:hover{background:var(--surface-2)}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.btn{border:1px solid var(--line);background:var(--surface);padding:9px 14px;border-radius:9px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.small{padding:6px 10px;font-size:13px}
+.btn[disabled]{opacity:.6;cursor:wait}
+
+.info{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.chip b{color:var(--ink);font-weight:600}
+.chip.good{background:var(--good-soft);border-color:transparent;color:var(--good)}
+.chip.bad{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
+.chip.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.banner{font-size:13px;padding:10px 12px;border-radius:var(--r);background:var(--accent-soft);color:var(--ink)}
+.banner.bad{background:var(--bad-soft)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+.card h2{font-size:15px;margin:0 0 4px;font-weight:700}
+.card h3{font-size:13px;margin:14px 0 6px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.card p.sub{margin:0 0 12px;color:var(--muted);font-size:13px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+
+.gridwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+table.grid{border-collapse:separate;border-spacing:0;width:100%;min-width:460px}
+.grid th,.grid td{padding:3px;border-bottom:1px solid var(--line);text-align:center}
+.grid thead th{font-size:12px;font-weight:600;color:var(--muted);padding:8px 3px 6px;background:var(--surface)}
+.grid thead th small{display:block;font-weight:400;font-family:var(--font-mono);font-size:11px}
+.grid thead th.flag{color:var(--bad)}
+.grid .namecol{position:sticky;left:0;z-index:1;background:var(--surface);text-align:left;padding:6px 8px 6px 12px;min-width:92px;border-right:1px solid var(--line)}
+.grid tbody tr:last-child td,.grid tbody tr:last-child th{border-bottom:0}
+.pname{font-weight:600;font-size:14px;display:flex;align-items:center;gap:5px;white-space:nowrap}
+.pname.flag{color:var(--bad)}
+.pmeta{font-size:11px;color:var(--muted);font-family:var(--font-mono);white-space:nowrap}
+.tag{font-size:10px;font-weight:700;letter-spacing:.04em;padding:1px 5px;border-radius:4px;background:var(--surface-2);color:var(--muted)}
+.cell{width:100%;min-width:50px;height:50px;border:1px solid transparent;border-radius:7px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;position:relative;padding:2px;background:transparent}
+.cell .k{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase}
+.cell .t{font-family:var(--font-mono);font-size:10.5px;white-space:nowrap}
+.cell.open{background:var(--open-bg);color:var(--open-fg)}
+.cell.close{background:var(--close-bg);color:var(--close-fg)}
+.cell.mid{background:var(--mid-bg);color:var(--mid-fg)}
+.cell.pto{background:var(--pto-bg);color:var(--pto-fg)}
+.cell.off{color:var(--off-fg)}
+.cell.off:hover{background:var(--surface-2)}
+.cell.flag{box-shadow:inset 0 0 0 2px var(--bad)}
+.cell .lock{position:absolute;top:3px;right:3px;width:10px;height:10px;opacity:.75}
+.cell .lim{position:absolute;top:2px;left:4px;font-size:10px;font-weight:700}
+.grid tfoot td,.grid tfoot th{font-size:12px;padding:6px 3px;border-top:1px solid var(--line);border-bottom:0;font-family:var(--font-mono)}
+.grid tfoot th{font-family:var(--font-body);font-weight:600;color:var(--muted)}
+.grid tfoot .short{color:var(--bad);font-weight:700}
+.legend{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted);align-items:center}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
+
+.issues{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.issues li{font-size:14px;padding:8px 10px;border-radius:8px;display:flex;gap:8px;align-items:flex-start}
+.issues li.rule{background:var(--bad-soft)}
+.issues li.note{background:var(--warn-soft)}
+.issues li .dot{flex:none;width:8px;height:8px;border-radius:50%;margin-top:7px}
+.issues li.rule .dot{background:var(--bad)}
+.issues li.note .dot{background:var(--warn)}
+
+table.tally{width:100%;border-collapse:collapse;font-size:13px}
+.tally th,.tally td{padding:6px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.tally th:first-child,.tally td:first-child{text-align:left}
+.tally thead th{color:var(--muted);font-weight:600;font-size:12px}
+.tally td{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.tally td.txt{font-family:var(--font-body);text-align:left}
+.tally .short{color:var(--bad);font-weight:700}
+.tally tr.total td{border-bottom:0;border-top:2px solid var(--line)}
+.scrollx{overflow-x:auto}
+
+.people{display:flex;flex-direction:column;gap:8px}
+.person{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;text-align:left;width:100%}
+.person:hover{border-color:var(--accent)}
+.person .main{flex:1;min-width:0}
+.person .nm{font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.person .ds{font-size:13px;color:var(--muted)}
+.person .lims{font-size:12px;color:var(--muted);margin-top:4px;font-family:var(--font-mono)}
+
+.field{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+.field label,.flabel{font-size:12px;font-weight:600;color:var(--muted)}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>.field{flex:1;min-width:120px}
+input[type=text],input[type=number],input[type=date],input[type=time],select,textarea{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0}
+textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:vertical}
+.seg{display:flex;background:var(--surface-2);border-radius:9px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:transparent;padding:7px 8px;border-radius:7px;font-weight:600;font-size:13px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.days{display:flex;gap:4px;flex-wrap:wrap}
+.days button{width:40px;height:34px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:12px;font-weight:600;color:var(--muted)}
+.days button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.limit{border:1px solid var(--line);border-radius:var(--r);padding:12px;margin-bottom:10px;background:var(--surface-2)}
+.limit .field{margin-bottom:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.xchip{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-family:var(--font-mono);padding:3px 4px 3px 10px;border-radius:999px;background:var(--pto-bg);color:var(--pto-fg)}
+.xchip button{border:0;background:transparent;width:22px;height:22px;border-radius:50%;color:inherit}
+.check{display:flex;align-items:center;gap:8px;font-size:14px}
+
+.rot{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.rot li{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px}
+.rot li.now{background:var(--accent-soft);border-color:transparent}
+.rot .n{font-family:var(--font-mono);font-size:12px;color:var(--muted);width:20px}
+.rot .who{flex:1;font-weight:600}
+.rot .now-tag{font-size:11px;font-weight:700;color:var(--accent)}
+.shifttbl{width:100%;border-collapse:collapse;font-size:13px}
+.shifttbl td,.shifttbl th{padding:4px;text-align:left;border-bottom:1px solid var(--line)}
+.shifttbl th{font-weight:600;color:var(--muted);font-size:12px}
+.shifttbl input{padding:6px;font-family:var(--font-mono);font-size:13px}
+.groups{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.group{border:1px solid var(--line);border-radius:8px;padding:10px}
+.group.offnow{background:var(--surface-2)}
+.group b{display:block;font-size:13px}
+.group span{font-size:13px;color:var(--muted)}
+
+.sheet-bg{position:fixed;inset:0;background:rgba(10,14,22,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:88vh;overflow:auto;border-radius:16px 16px 0 0;padding:18px max(18px,env(safe-area-inset-right,0px)) calc(20px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-left,0px))}
+@media (min-width:700px){.sheet-bg{align-items:center}.sheet{border-radius:16px}}
+.sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.sheet-head h2{margin:0;font-size:18px}
+.sheet-head p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:14px}
+.opt{border:2px solid transparent;border-radius:10px;padding:10px;text-align:left;display:flex;flex-direction:column;gap:2px}
+.opt .k{font-weight:700;font-size:14px}
+.opt .t{font-family:var(--font-mono);font-size:12px}
+.opt .why{font-size:11px;color:var(--bad)}
+.opt.off{background:var(--surface-2);color:var(--muted)}
+.opt.open{background:var(--open-bg);color:var(--open-fg)}
+.opt.close{background:var(--close-bg);color:var(--close-fg)}
+.opt.mid{background:var(--mid-bg);color:var(--mid-fg)}
+.opt.pto{background:var(--pto-bg);color:var(--pto-fg)}
+.opt[aria-pressed="true"]{border-color:var(--ink)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
+.empty{text-align:center;padding:32px 16px}
+.empty p{color:var(--muted);margin:6px 0 16px}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:14px}
+@media (max-width:520px){.actions{margin-left:0;width:100%}.actions .btn{flex:1;justify-content:center}.weeknav{width:100%;justify-content:space-between}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div class="brand">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M7 13h4M7 17h7"/></svg>
+        Shift Planner
+      </div>
+      <span class="small muted" id="savedNote"></span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" data-act="tab" data-tab="schedule" id="tab-schedule">Schedule</button>
+      <button class="tab" role="tab" data-act="tab" data-tab="team" id="tab-team">Team</button>
+      <button class="tab" role="tab" data-act="tab" data-tab="rules" id="tab-rules">Rules</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="app"></main>
+<div class="sheet-bg" id="sheetBg" hidden><div class="sheet" role="dialog" aria-modal="true" id="sheet"></div></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+'use strict';
+const KEY = 'shiftPlanner.v1';
+const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DAYS_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const LABEL = {open:'Open', close:'Close', mid:'Mid', off:'Off', pto:'PTO'};
+const LOCK_SVG = '<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-label="locked"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+const uid = () => Math.random().toString(36).slice(2, 10);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const MGR = r => r === 'MOD' || r === 'ABOM' || r === 'BOM';
+const NOHOURS = r => r === 'ABOM' || r === 'BOM';
+const isExtra = v => typeof v === 'string' && v.charCodeAt(0) === 120 && v[1] === ':';
+const isWork = v => v === 'open' || v === 'close' || v === 'mid' || v === 'custom' || isExtra(v);
+const dayGroup = d => d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday';
+const GROUP_LABEL = {weekday: 'Mon–Fri', sat: 'Saturday', sun: 'Sunday'};
+let EXTRA = {};
+function syncExtra() { S.extraShifts = S.extraShifts || []; EXTRA = {}; for (const x of S.extraShifts) EXTRA['x:' + x.id] = x; }
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const mod = (a, n) => ((a % n) + n) % n;
+
+/* ---------- dates ---------- */
+const pad = n => String(n).padStart(2, '0');
+const iso = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const parse = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return iso(d); };
+const sundayOf = s => { const d = parse(s); d.setDate(d.getDate() - d.getDay()); return iso(d); };
+function nextSunday() { const t = new Date(); return iso(new Date(t.getFullYear(), t.getMonth(), t.getDate() + (7 - t.getDay()))); }
+const shortDate = s => { const d = parse(s); return MONTHS[d.getMonth()] + ' ' + d.getDate(); };
+function weekLabel(ws) {
+  const a = parse(ws), b = parse(addDays(ws, 6));
+  const left = MONTHS[a.getMonth()] + ' ' + a.getDate();
+  const right = (a.getMonth() === b.getMonth() ? '' : MONTHS[b.getMonth()] + ' ') + b.getDate();
+  return left + ' – ' + right + ', ' + b.getFullYear();
+}
+
+/* ---------- time ---------- */
+const mins = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+function paidHours(s, e) { let d = (mins(e) - mins(s)) / 60; if (d < 0) d += 24; const lunch = d < 6 ? 0 : d <= 7 ? 0.5 : 1; return d - lunch; }
+function fmtTime(t) { let [h, m] = t.split(':').map(Number); const ap = h >= 12 ? 'p' : 'a'; h = h % 12 || 12; return h + (m ? ':' + pad(m) : '') + ap; }
+const fmtRange = (s, e) => fmtTime(s) + '–' + fmtTime(e);
+const fmtH = h => String(Math.round(h * 100) / 100);
+
+/* ---------- state ---------- */
+function defaultState() {
+  const ref = nextSunday();
+  const P = (name, role, group, extra) => Object.assign({id: uid(), name, role, type: 'FT', maxHours: 40, daysPerWeek: 5, modGroup: group || 'A', restrictions: [], timeOff: []}, extra || {});
+  const people = [
+    P('Alex', 'MOD', 'A'), P('Bri', 'MOD', 'A'), P('Cam', 'MOD', 'B'), P('Dee', 'MOD', 'B'),
+    P('Eli', 'Associate'), P('Fay', 'Associate'),
+    P('Gus', 'Associate', null, {restrictions: [{id: uid(), days: [2, 3, 4], weeks: 'every', kind: 'custom', start: '15:00', end: '22:00', countsAs: 'close'}]}),
+    P('Hana', 'Associate'), P('Ivy', 'Associate'),
+    P('Jo', 'Associate', null, {type: 'PT', maxHours: 30, daysPerWeek: 5, restrictions: [
+      {id: uid(), days: [2], weeks: 'every', kind: 'custom', start: '15:00', end: '22:00', countsAs: 'close'},
+      {id: uid(), days: [1, 3, 4, 5], weeks: 'A', kind: 'custom', start: '09:00', end: '15:00', countsAs: 'open'},
+      {id: uid(), days: [0, 6], weeks: 'A', kind: 'off'},
+      {id: uid(), days: [1, 4, 5, 6], weeks: 'B', kind: 'custom', start: '09:00', end: '15:00', countsAs: 'open'},
+      {id: uid(), days: [0, 3], weeks: 'B', kind: 'off'}
+    ]})
+  ];
+  return {
+    v: 1,
+    people,
+    rotation: people.filter(p => p.role !== 'MOD' && p.type === 'FT').map(p => p.id),
+    settings: {refDate: ref, minOpen: 3, minClose: 3, assocOffPerWeekend: 1, rotOffset: 0, modFlip: false, parityFlip: false, example: true},
+    shifts: {
+      weekday: {modOpen: ['09:00', '18:00'], open: ['10:00', '19:00'], close: ['13:00', '22:00'], modClose: ['13:00', '22:00'], mid: ['11:00', '20:00']},
+      sat:     {modOpen: ['08:00', '17:00'], open: ['09:00', '18:00'], close: ['13:00', '22:00'], modClose: ['13:00', '22:00'], mid: ['11:00', '20:00']},
+      sun:     {modOpen: ['11:00', '18:00'], open: ['11:00', '19:00'], close: ['12:00', '20:00'], modClose: ['13:00', '20:00'], mid: ['12:00', '19:00']}
+    },
+    extraShifts: [],
+    weeks: {},
+    ui: {week: ref},
+    pristine: true,
+    savedAt: 0
+  };
+}
+let storageOK = true, firstRun = false;
+function load() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) { const s = JSON.parse(raw); if (s && Array.isArray(s.people) && s.shifts) return s; }
+  } catch (e) { storageOK = false; }
+  firstRun = true;
+  return defaultState();
+}
+let S = load();
+syncExtra();
+/* Saving: always to this device; also to the viewer's private space in their Claude account when available.
+   `quiet` saves (first-run example, switching weeks) don't count as edits, so a fresh example team
+   never overwrites data saved in the account. */
+function save(quiet) {
+  if (!quiet) { S.pristine = false; S.savedAt = Date.now(); }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); storageOK = true; } catch (e) { storageOK = false; }
+  cloudSchedule();
+  showSaveStatus();
+}
+const STANDALONE = window.top === window && !window.claude;
+if (STANDALONE && navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+const Cloud = {db: null, base: null, ready: false, state: 'local', configStr: null, weekStr: {}, timer: null, chain: Promise.resolve(), dl: null};
+function showSaveStatus() {
+  const el = document.getElementById('savedNote'); if (!el) return;
+  el.textContent = Cloud.state === 'loading' ? 'Loading your saved data…'
+    : Cloud.state === 'saving' ? 'Saving…'
+    : Cloud.state === 'cloud' ? 'Saved to your account'
+    : storageOK ? (STANDALONE ? 'Saved on this device' : 'Saved on this device only') : 'Not saving: save a backup';
+}
+const withTimeout = (pr, ms) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej({code: 'timeout'}), ms))]);
+const configOf = st => { const c = Object.assign({}, st); delete c.weeks; return c; };
+async function cloudInit() {
+  if (!window.claude || typeof window.claude.use !== 'function') return;
+  claude.use('downloads').then(d => { Cloud.dl = d; }, () => {});
+  let db = null, user = null, uid = null;
+  try { [db, user] = await Promise.all([claude.use('db'), claude.use('user')]); } catch (e) { return; }
+  if (!db || !user) return;
+  try { uid = await user.id(); } catch (e) { uid = null; }
+  if (!uid) return;
+  Cloud.db = db; Cloud.base = db.doc('data/users/' + uid + '/state');
+  Cloud.state = 'loading'; showSaveStatus();
+  try {
+    const snap = await withTimeout(Cloud.base.get(), 12000);
+    const remote = snap.exists ? snap.data() : null;
+    if (remote && remote.config && (S.pristine || !((S.savedAt || 0) > (remote.savedAt || 0)))) {
+      const ws = await withTimeout(Cloud.base.collection('weeks').get(), 12000);
+      const weeks = {};
+      ws.docs.forEach(d => { const x = d.data(); if (x && x.cells) { weeks[d.id] = {cells: JSON.parse(JSON.stringify(x.cells)), locks: JSON.parse(JSON.stringify(x.locks || {}))}; Cloud.weekStr[d.id] = JSON.stringify(weeks[d.id]); } });
+      S = Object.assign(JSON.parse(JSON.stringify(remote.config)), {weeks});
+      S.pristine = false; S.savedAt = remote.savedAt || Date.now();
+      Cloud.configStr = JSON.stringify(configOf(S));
+      syncExtra(); UI.week = (S.ui && S.ui.week) || UI.week;
+      try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+      Cloud.ready = true; Cloud.state = 'cloud';
+      if (UI.sheet) closeSheet(); else render();
+    } else {
+      // Nothing saved in the account yet (or this device has newer edits): upload what's here.
+      if (remote) { const ws = await withTimeout(Cloud.base.collection('weeks').get(), 12000); ws.docs.forEach(d => { Cloud.weekStr[d.id] = '?'; }); }
+      Cloud.ready = true; Cloud.state = 'cloud';
+      if (!S.pristine) cloudSchedule(true); else showSaveStatus();
+    }
+  } catch (e) {
+    Cloud.db = null; Cloud.base = null; Cloud.ready = false; Cloud.state = 'local';
+  }
+  showSaveStatus();
+}
+function cloudSchedule(now) {
+  if (!Cloud.ready || !Cloud.base || S.pristine) return;
+  clearTimeout(Cloud.timer);
+  Cloud.timer = setTimeout(cloudPush, now ? 0 : 900);
+}
+function cloudPush() {
+  if (!Cloud.ready || !Cloud.base) return;
+  const ops = [];
+  const cfg = JSON.stringify(configOf(S));
+  if (cfg !== Cloud.configStr) { const body = {config: JSON.parse(cfg), savedAt: S.savedAt || Date.now()}; ops.push(() => Cloud.base.set(body).then(() => { Cloud.configStr = cfg; })); }
+  for (const ws in S.weeks) {
+    const str = JSON.stringify({cells: S.weeks[ws].cells, locks: S.weeks[ws].locks || {}});
+    if (str !== Cloud.weekStr[ws]) ops.push(() => Cloud.base.collection('weeks').doc(ws).set(JSON.parse(str)).then(() => { Cloud.weekStr[ws] = str; }));
+  }
+  for (const ws in Cloud.weekStr) if (!S.weeks[ws]) ops.push(() => Cloud.base.collection('weeks').doc(ws).delete().then(() => { delete Cloud.weekStr[ws]; }));
+  if (!ops.length) return;
+  Cloud.state = 'saving'; showSaveStatus();
+  const runOne = op => op().catch(e => {
+    if (e && e.code === 'unavailable') return new Promise(r => setTimeout(r, 800 + Math.random() * 800)).then(op);
+    throw e;
+  });
+  Cloud.chain = Cloud.chain.then(() => ops.reduce((c, op) => c.then(() => runOne(op)), Promise.resolve()))
+    .then(() => { if (Cloud.state === 'saving') Cloud.state = 'cloud'; showSaveStatus(); })
+    .catch(e => {
+      if (e && (e.code === 'invalid_argument' || e.code === 'revoked' || e.code === 'not_granted')) { Cloud.ready = false; Cloud.base = null; Cloud.state = 'local'; toast('Couldn\'t save to your account. Your changes are saved on this device.'); }
+      else { Cloud.state = 'cloud'; setTimeout(() => cloudSchedule(true), 5000); }
+      showSaveStatus();
+    });
+}
+const UI = {tab: 'schedule', week: (S.ui && S.ui.week) || nextSunday(), sheet: null, busy: false};
+
+/* ---------- rotation helpers ---------- */
+const weekIndex = ws => Math.round((parse(ws) - parse(S.settings.refDate)) / (7 * 864e5));
+const parityOf = wi => ((mod(wi, 2) === 0) !== !!S.settings.parityFlip) ? 'A' : 'B';
+const modOffGroup = wi => ((mod(wi, 2) === 0) !== !!S.settings.modFlip) ? 'B' : 'A';
+function rotationList() { const ids = new Set(S.people.map(p => p.id)); return S.rotation.filter(id => ids.has(id)); }
+function rotationOff(wi) {
+  const list = rotationList(); const n = list.length; if (!n) return [];
+  const K = Math.min(Math.max(0, S.settings.assocOffPerWeekend | 0), n);
+  const start = mod((wi + (S.settings.rotOffset | 0)) * K, n);
+  const out = []; for (let k = 0; k < K; k++) out.push(list[(start + k) % n]); return out;
+}
+const personById = id => S.people.find(p => p.id === id);
+
+/* ---------- context for one week ---------- */
+function trailing(row) { let n = 0; for (let d = 6; d >= 0 && isWork(row[d]); d--) n++; return n; }
+function maxRun(row, carry) { let run = carry, m = 0; for (let d = 0; d < 7; d++) { if (isWork(row[d])) { run++; if (run > m) m = run; } else run = 0; } return m; }
+
+function buildCtx(ws) {
+  const wi = weekIndex(ws), par = parityOf(wi), offSet = new Set(rotationOff(wi)), prevOffSet = new Set(rotationOff(wi - 1)), modOff = modOffGroup(wi);
+  const prev = S.weeks[addDays(ws, -7)], prev2 = S.weeks[addDays(ws, -14)];
+  const dates = DAYS.map((_, d) => addDays(ws, d));
+  const P = S.people.map(p => {
+    const allowed = [], reason = [], custom = [];
+    let pto = 0;
+    for (let d = 0; d < 7; d++) {
+      let a = ['off', 'open', 'close', 'mid'], r = '', c = null;
+      const rs = p.restrictions.filter(x => x.days.includes(d) && (x.weeks === 'every' || x.weeks === par));
+      const kinds = new Set(rs.map(x => x.kind));
+      if (kinds.has('off')) { a = ['off']; r = 'not available'; }
+      else if (kinds.has('custom')) { c = rs.find(x => x.kind === 'custom'); a = ['off', 'custom']; r = 'limited to ' + fmtRange(c.start, c.end); }
+      else if (kinds.has('open') && !kinds.has('close')) { a = ['off', 'open']; r = 'opening shifts only'; }
+      else if (kinds.has('close') && !kinds.has('open')) { a = ['off', 'close']; r = 'closing shifts only'; }
+      const wkend = d === 0 || d === 6;
+      if (d === 6 && p.role === 'Associate' && offSet.has(p.id)) { a = ['off']; r = 'starting their weekend off'; }
+      if (d === 0 && p.role === 'Associate' && prevOffSet.has(p.id)) { a = ['off']; r = 'finishing their weekend off'; }
+      if (MGR(p.role) && (p.modGroup === 'A' || p.modGroup === 'B')) {
+        const offWeek = p.modGroup === modOff, midOff = p.modMidOff == null ? 4 : +p.modMidOff;
+        if (offWeek ? (d === 5 || d === 6) : (d === 0 || d === midOff)) { a = ['off']; r = offWeek ? 'on their weekend off (group ' + p.modGroup + ')' : d === 0 ? 'finishing their weekend off' : 'on their set weekday off'; }
+      }
+      if (p.timeOff.includes(dates[d])) { a = ['pto']; r = 'on time off'; pto++; }
+      allowed.push(a); reason.push(r); custom.push(c);
+    }
+    const workable = allowed.filter(a => a.some(isWork)).length;
+    const closable = allowed.filter((a, d) => a.includes('close') || (a.includes('custom') && custom[d] && custom[d].countsAs === 'close')).length;
+    const pc = prev && prev.cells[p.id], pc2 = prev2 && prev2.cells[p.id];
+    return {
+      id: p.id, name: p.name, role: p.role, isMod: MGR(p.role), isAbom: NOHOURS(p.role), type: p.type, maxHours: +p.maxHours || 0, maxDays: +p.daysPerWeek || 0,
+      allowed, reason, custom,
+      workable,
+      target: p.type === 'FT' ? Math.min(Math.max(0, (+p.daysPerWeek || 0) - pto), workable) : null,
+      carry: pc ? trailing(pc) : 0,
+      prevFive: pc ? maxRun(pc, pc2 ? trailing(pc2) : 0) >= 5 : false,
+      prevCloses: pc ? pc.filter(v => v === 'close').length : null,
+      prevRow: pc || null,
+      prevSat: pc ? pc[6] : null,
+      prevSun: pc ? pc[0] : null,
+      prev2Sat: pc2 ? pc2[6] : null,
+      inCycle: MGR(p.role) && (p.modGroup === 'A' || p.modGroup === 'B'),
+      closable,
+      weekendWork: p.role === 'MOD' && p.modGroup !== modOff && p.modGroup !== 'none'
+    };
+  });
+  return {ws, wi, par, modOff, offSet, dates, P, hasPrev: !!prev};
+}
+const kindOf = (p, d, v) => v === 'custom' ? (p.custom[d] ? p.custom[d].countsAs : 'mid') : isExtra(v) ? (EXTRA[v] ? EXTRA[v].countsAs : 'mid') : v;
+const baseOf = (p, d, v) => isExtra(v) ? kindOf(p, d, v) : v;
+function timesFor(p, d, v, modOpenerId) {
+  const T = S.shifts[d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday'];
+  if (v === 'open') return (p.isMod && modOpenerId === p.id) ? T.modOpen : T.open;
+  if (v === 'close') return p.isMod ? T.modClose : T.close;
+  if (v === 'mid') return T.mid;
+  if (v === 'custom' && p.custom[d]) return [p.custom[d].start, p.custom[d].end];
+  if (isExtra(v) && EXTRA[v]) return [EXTRA[v].start, EXTRA[v].end];
+  return null;
+}
+function modOpeners(ctx, cells) {
+  const out = new Array(7).fill(null);
+  for (let d = 0; d < 7; d++) {
+    for (const p of ctx.P) if (p.isMod && cells[p.id][d] === 'open') { out[d] = p.id; break; }
+    if (out[d] === null) for (const p of ctx.P) { const v = cells[p.id][d]; if (p.isMod && v !== 'open' && isWork(v) && kindOf(p, d, v) === 'open') { out[d] = p.id; break; } }
+  }
+  return out;
+}
+
+/* ---------- scoring: rules (heavy) and preferences (light) ---------- */
+function evaluate(ctx, cells, explain) {
+  const st = S.settings; let score = 0; const issues = explain ? [] : null;
+  const add = (w, sev, msg, refs) => { score += w; if (explain) issues.push({sev, msg: msg(), refs: refs || []}); };
+  const P = ctx.P, n = P.length;
+  const mo = modOpeners(ctx, cells);
+  for (let d = 0; d < 7; d++) {
+    let o = 0, c = 0, m = 0, modO = false, modC = false, modCn = 0;
+    for (let i = 0; i < n; i++) {
+      const p = P[i], k = kindOf(p, d, cells[p.id][d]);
+      if (k === 'open') { o++; if (p.isMod) modO = true; }
+      else if (k === 'close') { c++; if (p.isMod) { modC = true; modCn++; } }
+      else if (k === 'mid') m++;
+    }
+    const dO = Math.max(0, st.minOpen - o), dC = Math.max(0, st.minClose - c), cov = Math.min(m, dO + dC), un = dO + dC - cov;
+    score += m * 40;
+    const extraO = Math.max(0, o - st.minOpen);
+    score += 8 * extraO * extraO;
+    const extraC = Math.max(0, c - st.minClose);
+    score += 8 * extraC * extraC;
+    const maxO = st.maxOpen == null ? 6 : st.maxOpen;
+    if (maxO > 0 && o > maxO) add(150 * (o - maxO), 'note', () => `${DAYS_LONG[d]} has ${o} openers. Try to keep it to ${maxO} or fewer.`, [['day', d]]);
+    if (un > 0) add(300 * un, 'rule', () => `${DAYS_LONG[d]} has ${o} opener${o === 1 ? '' : 's'} and ${c} closer${c === 1 ? '' : 's'}${m ? ' plus ' + m + ' mid' : ''}. It needs ${st.minOpen} and ${st.minClose}.`, [['day', d]]);
+    else if (cov > 0 && explain) { const T = S.shifts[d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday'].mid; issues.push({sev: 'note', msg: `${DAYS_LONG[d]} uses a mid shift (${fmtRange(T[0], T[1])}) to cover a missing ${dO ? 'opener' : 'closer'}.`, refs: [['day', d]]}); }
+    if (!modO) add(200, 'rule', () => `${DAYS_LONG[d]} has no opening MOD.`, [['day', d]]);
+    if (!modC) add(200, 'rule', () => `${DAYS_LONG[d]} has no closing MOD.`, [['day', d]]);
+    if ((d === 0 || d === 6) && modCn > 1) add(300 * (modCn - 1), 'rule', () => `${DAYS_LONG[d]} has ${modCn} MODs closing. Weekends have one closing MOD.`, [['day', d]]);
+    else if (d > 0 && d < 6 && modCn > 2) add(300 * (modCn - 2), 'rule', () => `${DAYS_LONG[d]} has ${modCn} MODs closing. Weekdays have at most 2.`, [['day', d]]);
+  }
+  let identical = ctx.hasPrev;
+  for (let i = 0; i < n; i++) {
+    const p = P[i], row = cells[p.id];
+    let work = 0, hrs = 0, closes = 0, run = p.carry, maxR = 0;
+    for (let d = 0; d < 7; d++) {
+      const v = row[d];
+      if (!p.allowed[d].includes(baseOf(p, d, v))) {
+        if (v === 'pto') { if (explain) issues.push({sev: 'note', msg: `${p.name} is marked PTO on ${DAYS[d]} but has no time off that day.`, refs: [[p.id, d]]}); }
+        else if (p.allowed[d][0] === 'pto') add(1000, 'rule', () => `${p.name} is on time off ${DAYS_LONG[d]}.`, [[p.id, d]]);
+        else add(1000, 'rule', () => `${p.name} is ${p.reason[d] || 'not available for that shift'} on ${DAYS_LONG[d]}.`, [[p.id, d]]);
+      }
+      if (isWork(v)) {
+        work++; run++; if (run > maxR) maxR = run;
+        const t = timesFor(p, d, v, mo[d]); if (t) hrs += paidHours(t[0], t[1]);
+        if (kindOf(p, d, v) === 'close') closes++;
+      } else run = 0;
+      if (p.prevRow) { if (p.prevRow[d] === v) score += 2; else identical = false; } else identical = false;
+    }
+    if (p.target !== null && work !== p.target) add(1000 * Math.abs(work - p.target), 'rule', () => `${p.name} works ${work} day${work === 1 ? '' : 's'}. Full-timers need ${p.target} this week.`, [[p.id, 'row']]);
+    if (p.type === 'PT' && work > p.maxDays) add(1000 * (work - p.maxDays), 'rule', () => `${p.name} works ${work} days. Their limit is ${p.maxDays}.`, [[p.id, 'row']]);
+    if (p.type === 'PT') { const aim = Math.min(p.maxDays, p.workable); if (work < aim && hrs + 5 <= p.maxHours) add(50 * (aim - work), 'note', () => `${p.name} works ${work} day${work === 1 ? '' : 's'} but is available for ${aim}.`, [[p.id, 'row']]); }
+    if (hrs > p.maxHours + 1e-9) add(1000 * Math.ceil(hrs - p.maxHours), 'rule', () => `${p.name} is at ${fmtH(hrs)} hours. Their limit is ${p.maxHours}.`, [[p.id, 'row']]);
+    if (!p.isMod) { const tail = trailing(row); if (tail >= 5) score += 60; else if (tail === 4) score += 15; }
+    if (!p.isMod && maxR > 5) add(1000 * (maxR - 5), 'rule', () => `${p.name} works ${maxR} days in a row${p.carry ? ', counting the end of last week' : ''}. The limit is 5.`, [[p.id, 'row']]);
+    else if (!p.isMod && maxR === 5 && p.prevFive) add(150, 'note', () => `${p.name} works 5 days in a row for the second week running.`, [[p.id, 'row']]);
+    if (p.type === 'FT' && p.target >= 4 && p.isMod && p.closable >= 2) {
+      if (closes !== 2) add(100 * Math.abs(closes - 2), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. MODs close 2 times a week.`, [[p.id, 'row']]);
+    } else if (p.type === 'FT' && p.target >= 4 && p.closable >= 2) {
+      if (closes < 2) add(60 * (2 - closes), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. The usual pattern is 2 or 3.`, [[p.id, 'row']]);
+      if (closes > 3) add(60 * (closes - 3), 'note', () => `${p.name} closes ${closes} times. The usual pattern is 2 or 3.`, [[p.id, 'row']]);
+      if (p.prevCloses === 3 && closes === 3) add(40, 'note', () => `${p.name} closed 3 times last week and closes 3 again.`, [[p.id, 'row']]);
+      if (p.prevCloses === 2 && closes === 2) score += 10;
+    }
+    if (p.inCycle) {
+      const oc = v => v === 'open' || v === 'close';
+      const sun = kindOf(p, 0, row[0]), sat = kindOf(p, 6, row[6]);
+      // Sunday finishes the weekend that started last Saturday: same role both days.
+      if (oc(sun) && oc(p.prevSat) && sun !== p.prevSat) add(150, 'note', () => `${p.name} ${p.prevSat === 'open' ? 'opened' : 'closed'} last Saturday, so they should ${p.prevSat} this Sunday too.`, [[p.id, 0]]);
+      // Saturday starts a new working weekend: switch from their last working weekend.
+      const last = oc(p.prevSun) ? p.prevSun : oc(p.prev2Sat) ? p.prev2Sat : null;
+      if (oc(sat) && last && sat === last) add(150, 'note', () => `${p.name} ${last === 'open' ? 'opened' : 'closed'} their last working weekend, so they should ${last === 'open' ? 'close' : 'open'} this one.`, [[p.id, 6]]);
+    }
+    if (!p.isMod && isWork(row[6]) && (p.prevSat === 'open' || p.prevSat === 'close')) {
+      const k = kindOf(p, 6, row[6]);
+      if (k === p.prevSat) add(120, 'note', () => `${p.name} ${k === 'open' ? 'opened' : 'closed'} last Saturday, so they should ${k === 'open' ? 'close' : 'open'} this Saturday.`, [[p.id, 6]]);
+    }
+  }
+  if (identical && n) add(500, 'rule', () => 'This week is identical to last week.', []);
+  return {score, issues};
+}
+
+/* ---------- the shuffle: randomized search that keeps locked cells ---------- */
+function solve(ctx, base, locks) {
+  const P = ctx.P;
+  const auto = S.extraShifts.filter(x => x.auto);
+  const opts = P.map(p => p.allowed.map((a, d) => (locks[p.id] && locks[p.id][d]) ? [base[p.id][d]] : a.concat(auto.filter(x => x.group === dayGroup(d) && a.includes(x.countsAs)).map(x => 'x:' + x.id))));
+  const M = [], Md = P.map(() => []);
+  P.forEach((p, i) => { for (let d = 0; d < 7; d++) if (opts[i][d].length > 1) { M.push([i, d]); Md[i].push(d); } });
+  let best = null, bestS = Infinity;
+  const snapshot = cells => { const c = {}; for (const k in cells) c[k] = cells[k].slice(); return c; };
+  const RUNS = 4, ITERS = 22000;
+  for (let r = 0; r < RUNS; r++) {
+    const cells = {};
+    P.forEach((p, i) => {
+      const o = opts[i], row = [], workable = [];
+      for (let d = 0; d < 7; d++) {
+        if (o[d].length === 1) row[d] = o[d][0];
+        else { row[d] = o[d].includes('off') ? 'off' : o[d][0]; if (o[d].some(isWork)) workable.push(d); }
+      }
+      const already = row.filter(isWork).length;
+      const want = p.target !== null ? p.target - already : Math.floor(Math.random() * (Math.min(p.maxDays, workable.length) + 1));
+      for (let k = workable.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [workable[k], workable[j]] = [workable[j], workable[k]]; }
+      for (let k = 0; k < want && k < workable.length; k++) {
+        const d = workable[k]; const w = o[d].filter(v => isWork(v) && v !== 'mid');
+        row[d] = w.length ? pick(w) : pick(o[d].filter(isWork));
+      }
+      cells[p.id] = row;
+    });
+    let cur = evaluate(ctx, cells, false).score;
+    if (M.length) {
+      const T0 = 300, T1 = 0.3;
+      for (let it = 0; it < ITERS; it++) {
+        const T = T0 * Math.pow(T1 / T0, it / ITERS);
+        const r2 = Math.random();
+        if (r2 < 0.45) {
+          const [i, d] = pick(M); const row = cells[P[i].id], old = row[d];
+          const ch = opts[i][d].filter(v => v !== old); if (!ch.length) continue;
+          row[d] = pick(ch);
+          const s = evaluate(ctx, cells, false).score;
+          if (s <= cur || Math.random() < Math.exp((cur - s) / T)) cur = s; else row[d] = old;
+        } else if (r2 < 0.8) {
+          const i = M[Math.floor(Math.random() * M.length)][0]; if (Md[i].length < 2) continue;
+          const d = pick(Md[i]), e = pick(Md[i]); if (d === e) continue;
+          const row = cells[P[i].id], a = row[d], b = row[e];
+          if (a === b || !opts[i][d].includes(b) || !opts[i][e].includes(a)) continue;
+          row[d] = b; row[e] = a;
+          const s = evaluate(ctx, cells, false).score;
+          if (s <= cur || Math.random() < Math.exp((cur - s) / T)) cur = s; else { row[d] = a; row[e] = b; }
+        } else {
+          const d = Math.floor(Math.random() * 7);
+          const i = Math.floor(Math.random() * P.length), j = Math.floor(Math.random() * P.length); if (i === j) continue;
+          const ri = cells[P[i].id], rj = cells[P[j].id], a = ri[d], b = rj[d];
+          if (a === b || !opts[i][d].includes(b) || !opts[j][d].includes(a)) continue;
+          ri[d] = b; rj[d] = a;
+          const s = evaluate(ctx, cells, false).score;
+          if (s <= cur || Math.random() < Math.exp((cur - s) / T)) cur = s; else { ri[d] = a; rj[d] = b; }
+        }
+        if (cur < bestS) { bestS = cur; best = snapshot(cells); }
+      }
+    }
+    if (cur < bestS) { bestS = cur; best = snapshot(cells); }
+  }
+  return best;
+}
+
+/* ---------- week storage ---------- */
+function normalizeWeek(ctx, wk) {
+  wk.cells = wk.cells || {}; wk.locks = wk.locks || {};
+  for (const p of ctx.P) {
+    if (!wk.cells[p.id]) wk.cells[p.id] = p.allowed.map(a => a[0] === 'pto' ? 'pto' : 'off');
+    if (!wk.locks[p.id]) wk.locks[p.id] = [false, false, false, false, false, false, false];
+    for (let d = 0; d < 7; d++) {
+      if (p.allowed[d][0] === 'pto' && !wk.locks[p.id][d]) wk.cells[p.id][d] = 'pto';
+      if (wk.cells[p.id][d] === 'custom' && !p.custom[d]) wk.cells[p.id][d] = 'off';
+      if (isExtra(wk.cells[p.id][d]) && !EXTRA[wk.cells[p.id][d]]) wk.cells[p.id][d] = 'off';
+    }
+  }
+  return wk;
+}
+function ensureWeek(ws) { const ctx = buildCtx(ws); if (!S.weeks[ws]) S.weeks[ws] = {cells: {}, locks: {}}; normalizeWeek(ctx, S.weeks[ws]); return ctx; }
+
+function dayStats(ctx, cells) {
+  const mo = modOpeners(ctx, cells);
+  return DAYS.map((_, d) => {
+    let o = 0, c = 0, m = 0; const modC = [];
+    for (const p of ctx.P) {
+      const k = kindOf(p, d, cells[p.id][d]);
+      if (k === 'open') o++; else if (k === 'close') { c++; if (p.isMod) modC.push(p.name); } else if (k === 'mid') m++;
+    }
+    const opener = mo[d] ? personById(mo[d]) : null;
+    return {o, c, m, modOpen: opener ? opener.name : '', modClose: modC, moId: mo[d]};
+  });
+}
+function personStats(ctx, cells) {
+  const mo = modOpeners(ctx, cells);
+  return ctx.P.map(p => {
+    let o = 0, c = 0, m = 0, off = 0, h = 0;
+    for (let d = 0; d < 7; d++) {
+      const v = cells[p.id][d], k = kindOf(p, d, v);
+      if (isWork(v)) { const t = timesFor(p, d, v, mo[d]); if (t) h += paidHours(t[0], t[1]); }
+      if (k === 'open') o++; else if (k === 'close') c++; else if (k === 'mid') m++; else off++;
+    }
+    return {o, c, m, off, h};
+  });
+}
+
+/* ---------- rendering ---------- */
+const app = document.getElementById('app');
+function render() {
+  for (const t of ['schedule', 'team', 'rules']) document.getElementById('tab-' + t).setAttribute('aria-selected', UI.tab === t);
+  if (UI.tab === 'schedule') app.innerHTML = renderSchedule();
+  else if (UI.tab === 'team') app.innerHTML = renderTeam();
+  else app.innerHTML = renderRules();
+  showSaveStatus();
+}
+function banners() {
+  let h = '';
+  if (!storageOK) h += `<div class="banner bad">This browser isn't saving your data. Use <b>Rules → Save backup file</b> before closing.</div>`;
+  if (S.settings.example) h += `<div class="banner">This is an example team. Rename, add or remove people in <b>Team</b>, then press <b>Shuffle</b>. <button class="btn small" data-act="dismiss-example" style="margin-left:6px">Got it</button></div>`;
+  return h;
+}
+function weekBar(withActions) {
+  const ctx = buildCtx(UI.week);
+  return `<div class="weekbar">
+    <div class="weeknav">
+      <button class="iconbtn" data-act="wk-prev" aria-label="Previous week"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="lbl"><b>${weekLabel(UI.week)}</b><span>Sun–Sat · Week ${ctx.par}</span></div>
+      <button class="iconbtn" data-act="wk-next" aria-label="Next week"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6l6 6-6 6"/></svg></button>
+    </div>
+    ${withActions ? `<div class="actions">
+      <button class="btn primary" data-act="shuffle" ${UI.busy ? 'disabled' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>${UI.busy ? 'Shuffling…' : 'Shuffle'}</button>
+    </div>` : ''}
+  </div>`;
+}
+function infoChips(ctx) {
+  const off = [...ctx.offSet].map(id => personById(id)).filter(Boolean).map(p => esc(p.name));
+  return `<div class="info">
+    <span class="chip">Weekend off (Sat + next Sun): <b>${off.length ? off.join(', ') : 'nobody'}</b></span>
+    <span class="chip">MODs off Fri–Sat: <b>Group ${ctx.modOff}</b></span>
+    <span class="chip">${ctx.hasPrev ? 'Streaks include last week' : 'Last week not built here, so streaks start fresh'}</span>
+  </div>`;
+}
+function renderSchedule() {
+  const ws = UI.week, wk = S.weeks[ws];
+  let h = banners() + weekBar(true);
+  if (!wk) {
+    const ctx = buildCtx(ws);
+    return h + infoChips(ctx) + `<div class="card empty"><h2>No schedule for this week yet</h2><p>Press Shuffle to build one that follows your rules. You can adjust any shift afterwards.</p><button class="btn primary" data-act="shuffle">Shuffle</button></div>`;
+  }
+  const ctx = buildCtx(ws); normalizeWeek(ctx, wk);
+  const ev = evaluate(ctx, wk.cells, true);
+  const rules = ev.issues.filter(x => x.sev === 'rule'), notes = ev.issues.filter(x => x.sev === 'note');
+  const flagCell = new Set(), flagRow = new Set(), flagDay = new Set();
+  for (const is of rules) for (const [a, b] of is.refs) { if (a === 'day') flagDay.add(b); else if (b === 'row') flagRow.add(a); else flagCell.add(a + ':' + b); }
+  const ds = dayStats(ctx, wk.cells), ps = personStats(ctx, wk.cells);
+  const teamHours = ctx.P.reduce((sum, p, i) => sum + (p.isAbom ? 0 : ps[i].h), 0);
+  h += infoChips(ctx);
+  h += `<div class="info">${rules.length ? `<span class="chip bad"><b style="color:inherit">${rules.length}</b> rule${rules.length === 1 ? '' : 's'} broken</span>` : `<span class="chip good">All rules met</span>`}${notes.length ? `<span class="chip warn">${notes.length} note${notes.length === 1 ? '' : 's'}</span>` : ''}<span class="chip">Team hours: <b>${fmtH(teamHours)}</b></span>${Object.values(wk.locks).some(r => r.some(Boolean)) ? `<button class="btn small" data-act="unlock-all">Unlock all</button>` : ''}</div>`;
+  h += `<div class="gridwrap"><table class="grid"><thead><tr><th class="namecol">Team</th>`;
+  DAYS.forEach((dn, d) => { h += `<th class="${flagDay.has(d) ? 'flag' : ''}">${dn}<small>${shortDate(ctx.dates[d]).split(' ')[1]}</small></th>`; });
+  h += `</tr></thead><tbody>`;
+  ctx.P.forEach((p, i) => {
+    const per = S.people[i];
+    h += `<tr><th class="namecol"><div class="pname ${flagRow.has(p.id) ? 'flag' : ''}">${esc(p.name)}${p.isMod ? `<span class="tag">${esc(p.role)}${per.modGroup === 'none' ? '' : ' ' + esc(per.modGroup)}</span>` : ''}${p.type === 'PT' ? '<span class="tag">PT</span>' : ''}</div><div class="pmeta">${fmtH(ps[i].h)}h / ${p.maxHours}</div></th>`;
+    for (let d = 0; d < 7; d++) {
+      const v = wk.cells[p.id][d], k = kindOf(p, d, v), t = isWork(v) ? timesFor(p, d, v, ds[d].moId) : null;
+      let label = LABEL[k] || 'Off';
+      if (p.isMod && v === 'open' && ds[d].moId === p.id) label = 'MOD';
+      const cls = v === 'pto' ? 'pto' : isWork(v) ? k : 'off';
+      h += `<td><button class="cell ${cls} ${flagCell.has(p.id + ':' + d) ? 'flag' : ''}" data-act="cell" data-pid="${p.id}" data-d="${d}" aria-label="${esc(p.name)} ${DAYS_LONG[d]}: ${label}${t ? ' ' + fmtRange(t[0], t[1]) : ''}">${v === 'custom' ? '<span class="lim">*</span>' : ''}${wk.locks[p.id][d] ? LOCK_SVG : ''}<span class="k">${label}</span>${t ? `<span class="t">${fmtRange(t[0], t[1])}</span>` : ''}</button></td>`;
+    }
+    h += `</tr>`;
+  });
+  h += `</tbody><tfoot>`;
+  const st = S.settings;
+  h += `<tr><th class="namecol">Openers</th>${ds.map(x => `<td class="${x.o < st.minOpen ? 'short' : ''}">${x.o}</td>`).join('')}</tr>`;
+  h += `<tr><th class="namecol">Closers</th>${ds.map(x => `<td class="${x.c < st.minClose ? 'short' : ''}">${x.c}</td>`).join('')}</tr>`;
+  if (ds.some(x => x.m)) h += `<tr><th class="namecol">Mids</th>${ds.map(x => `<td>${x.m || ''}</td>`).join('')}</tr>`;
+  h += `</tfoot></table></div>`;
+  h += `<div class="legend"><span><span class="sw" style="background:var(--open-bg)"></span>Open</span><span><span class="sw" style="background:var(--close-bg)"></span>Close</span><span><span class="sw" style="background:var(--mid-bg)"></span>Mid</span><span><span class="sw" style="background:var(--pto-bg)"></span>Time off</span><span>MOD = opening MOD</span><span>* = limited hours</span><span>Tap a shift to change it. Changed shifts get locked so Shuffle keeps them.</span></div>`;
+  if (ev.issues.length) {
+    h += `<div class="card"><h2>Check before you finalize</h2><p class="sub">Red items break a rule. Amber items are worth a look.</p><ul class="issues">${[...rules, ...notes].map(x => `<li class="${x.sev}"><span class="dot"></span><span>${esc(x.msg)}</span></li>`).join('')}</ul></div>`;
+  }
+  h += `<div class="cols">
+    <div class="card"><h2>Each person</h2><p class="sub">Opens, closes and days off this week.</p><div class="scrollx"><table class="tally"><thead><tr><th>Name</th><th>Open</th><th>Close</th><th>Mid</th><th>Off</th><th>Hours</th></tr></thead><tbody>
+    ${ctx.P.map((p, i) => `<tr><td class="txt">${esc(p.name)}${p.isAbom ? ` <span class="tag">${esc(p.role)}</span>` : ''}</td><td>${ps[i].o}</td><td>${ps[i].c}</td><td>${ps[i].m || ''}</td><td>${ps[i].off}</td><td class="${ps[i].h > p.maxHours ? 'short' : ''}"${p.isAbom ? ' style="opacity:.55"' : ''}>${fmtH(ps[i].h)}</td></tr>`).join('')}
+    <tr class="total"><td class="txt"><b>Team total</b>${ctx.P.some(p => p.isAbom) ? '<div class="small muted">Not counting ABOM/BOM</div>' : ''}</td><td colspan="4"></td><td><b>${fmtH(teamHours)}</b></td></tr>
+    </tbody></table></div></div>
+    <div class="card"><h2>Each day</h2><p class="sub">Coverage and who is MOD.</p><div class="scrollx"><table class="tally"><thead><tr><th>Day</th><th>Open</th><th>Close</th><th>Opening MOD</th><th>Closing MOD</th></tr></thead><tbody>
+    ${ds.map((x, d) => `<tr><td class="txt">${DAYS[d]}</td><td class="${x.o < st.minOpen ? 'short' : ''}">${x.o}</td><td class="${x.c < st.minClose ? 'short' : ''}">${x.c}</td><td class="txt ${x.modOpen ? '' : 'short'}">${x.modOpen ? esc(x.modOpen) : 'None'}</td><td class="txt ${x.modClose.length ? '' : 'short'}">${x.modClose.length ? x.modClose.map(esc).join(', ') : 'None'}</td></tr>`).join('')}
+    </tbody></table></div></div>
+  </div>`;
+  return h;
+}
+
+function limitSummary(r) {
+  const days = r.days.slice().sort().map(d => DAYS[d]).join('/') || 'no days';
+  const wk = r.weeks === 'every' ? '' : ' (week ' + r.weeks + ')';
+  if (r.kind === 'off') return `${days}: not available${wk}`;
+  if (r.kind === 'open') return `${days}: opening only${wk}`;
+  if (r.kind === 'close') return `${days}: closing only${wk}`;
+  return `${days}: ${fmtRange(r.start, r.end)} as ${r.countsAs}${wk}`;
+}
+function renderTeam() {
+  const mods = S.people.filter(p => MGR(p.role)).length;
+  let h = banners();
+  h += `<div class="weekbar"><div><h2 style="margin:0;font-size:18px">Team</h2><span class="small muted">${S.people.length} people · ${mods} MODs · ${S.people.filter(p => p.type === 'FT').length} full-time</span></div><div class="actions"><button class="btn primary" data-act="add-person">Add person</button></div></div>`;
+  h += `<div class="people">${S.people.map(p => `<button class="person" data-act="edit-person" data-id="${p.id}">
+    <div class="main"><div class="nm">${esc(p.name)} ${MGR(p.role) ? `<span class="tag">${esc(p.role)} · ${p.modGroup === 'none' ? 'OWN SCHEDULE' : 'GROUP ' + esc(p.modGroup)}</span>${NOHOURS(p.role) ? ' <span class="tag">HOURS NOT COUNTED</span>' : ''}` : '<span class="tag">ASSOCIATE</span>'} <span class="tag">${p.type}</span></div>
+    <div class="ds">Up to ${p.maxHours} hours · ${p.daysPerWeek} days a week${p.timeOff.length ? ' · ' + p.timeOff.length + ' day' + (p.timeOff.length === 1 ? '' : 's') + ' off booked' : ''}</div>
+    ${p.restrictions.length ? `<div class="lims">${p.restrictions.map(r => esc(limitSummary(r))).join('<br>')}</div>` : ''}</div>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>`).join('')}</div>`;
+  h += `<p class="small muted">Names stay on this device only. First names or nicknames are all the app needs.</p>`;
+  return h;
+}
+
+function renderRules() {
+  const ctx = buildCtx(UI.week), st = S.settings;
+  const list = rotationList(), off = new Set(rotationOff(ctx.wi));
+  const A = S.people.filter(p => MGR(p.role) && p.modGroup === 'A').map(p => esc(p.name)).join(', ') || 'Nobody yet';
+  const B = S.people.filter(p => MGR(p.role) && p.modGroup === 'B').map(p => esc(p.name)).join(', ') || 'Nobody yet';
+  let h = banners() + weekBar(false);
+  h += `<p class="small muted" style="margin:0">Rotation settings below are shown for the week above. Use the arrows to check other weeks.</p>`;
+  h += `<div class="cols">`;
+  h += `<div class="card"><h2>Coverage</h2><p class="sub">Minimums for every day. MODs count toward these.</p><div class="row">
+    <div class="field"><label for="minOpen">Openers needed</label><input type="number" id="minOpen" min="0" max="20" value="${st.minOpen}" data-chg="setting" data-k="minOpen"></div>
+    <div class="field"><label for="minClose">Closers needed</label><input type="number" id="minClose" min="0" max="20" value="${st.minClose}" data-chg="setting" data-k="minClose"></div></div>
+    <div class="field" style="max-width:260px"><label for="maxOpen">Most openers on one day</label><input type="number" id="maxOpen" min="0" max="20" value="${st.maxOpen == null ? 6 : st.maxOpen}" data-chg="setting" data-k="maxOpen"></div>
+    <p class="small muted" style="margin:0 0 8px">Shuffle spreads extra openers evenly across the week and tries to stay at or under this number. Set it to 0 to turn the limit off.</p>
+    <p class="small muted" style="margin:0">If a day falls short, Shuffle adds a mid shift to fill the gap.</p></div>`;
+  const gtxt = g => ctx.modOff === g ? 'Works Sun–Thu, off Fri and Sat (and next Sunday)' : 'Off Sunday and their set weekday, works Fri and Sat';
+  h += `<div class="card"><h2>MOD weekends</h2><p class="sub">The two groups alternate a two-week cycle. MODs aren't held to the 5-days-in-a-row limit.</p>
+    <div class="groups"><div class="group ${ctx.modOff === 'A' ? 'offnow' : ''}"><b>Group A · ${ctx.modOff === 'A' ? 'weekend off' : 'working weekend'}</b><span>${A}</span><span style="display:block;margin-top:4px;font-size:12px">${gtxt('A')}</span></div><div class="group ${ctx.modOff === 'B' ? 'offnow' : ''}"><b>Group B · ${ctx.modOff === 'B' ? 'weekend off' : 'working weekend'}</b><span>${B}</span><span style="display:block;margin-top:4px;font-size:12px">${gtxt('B')}</span></div></div>
+    ${S.people.some(p => MGR(p.role) && p.modGroup === 'none') ? `<p class="small muted" style="margin:8px 0 0">Own schedule (not in a group): ${S.people.filter(p => MGR(p.role) && p.modGroup === 'none').map(p => esc(p.name)).join(', ')}</p>` : ''}
+    <div class="confirm"><button class="btn small" data-act="mod-flip">Switch which group is off</button></div></div>`;
+  h += `<div class="card"><h2>Associate weekend rotation</h2><p class="sub">Each week the next person on the list gets Saturday and the following Sunday off. Reorder the list to handle swaps.</p>
+    <div class="field" style="max-width:200px"><label for="kper">People off each weekend</label><input type="number" id="kper" min="0" max="10" value="${st.assocOffPerWeekend}" data-chg="setting" data-k="assocOffPerWeekend"></div>
+    <ul class="rot">${list.map((id, i) => { const p = personById(id); return `<li class="${off.has(id) ? 'now' : ''}"><span class="n">${i + 1}</span><span class="who">${esc(p.name)}</span>${off.has(id) ? '<span class="now-tag">OFF THIS WEEKEND</span>' : ''}<button class="iconbtn" data-act="rot-up" data-id="${id}" aria-label="Move ${esc(p.name)} up"${i === 0 ? ' disabled' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 15l-6-6-6 6"/></svg></button><button class="iconbtn" data-act="rot-down" data-id="${id}" aria-label="Move ${esc(p.name)} down"${i === list.length - 1 ? ' disabled' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button></li>`; }).join('') || '<li class="muted">No associates in the rotation. Turn it on in each person\'s profile.</li>'}</ul>
+    <div class="confirm"><button class="btn small" data-act="rot-back">Previous person's turn</button><button class="btn small" data-act="rot-fwd">Next person's turn</button></div></div>`;
+  h += `<div class="card"><h2>Week A / Week B</h2><p class="sub">For limits that alternate weekly, like someone who works Saturday one week and Wednesday the next.</p>
+    <p style="margin:0 0 8px">The week of <b>${weekLabel(UI.week)}</b> is <b>Week ${ctx.par}</b>.</p><button class="btn small" data-act="parity-flip">Switch A and B</button></div>`;
+  h += `</div>`;
+  h += `<div class="card"><h2>Shift times</h2><p class="sub">Lunch is subtracted automatically: none under 6 hours, 30 minutes for 6–7 hours, 1 hour over 7.</p><div class="cols">`;
+  const ROWS = [['modOpen', 'Opening MOD'], ['open', 'Opening'], ['close', 'Closing'], ['modClose', 'Closing MOD'], ['mid', 'Mid (fills gaps)']];
+  for (const [g, gl] of [['weekday', 'Mon–Fri'], ['sat', 'Saturday'], ['sun', 'Sunday']]) {
+    h += `<div><h3>${gl}</h3><table class="shifttbl"><thead><tr><th>Shift</th><th>Start</th><th>End</th><th>Paid</th></tr></thead><tbody>`;
+    for (const [k, kl] of ROWS) {
+      const t = S.shifts[g][k];
+      h += `<tr><td>${kl}</td><td><input type="time" id="sh-${g}-${k}-0" value="${t[0]}" data-chg="shift" data-g="${g}" data-k="${k}" data-i="0" aria-label="${gl} ${kl} start"></td><td><input type="time" id="sh-${g}-${k}-1" value="${t[1]}" data-chg="shift" data-g="${g}" data-k="${k}" data-i="1" aria-label="${gl} ${kl} end"></td><td class="small" style="font-family:var(--font-mono)">${fmtH(paidHours(t[0], t[1]))}h</td></tr>`;
+    }
+    h += `</tbody></table></div>`;
+  }
+  h += `</div></div>`;
+  h += `<div class="card"><h2>Extra shift times</h2><p class="sub">Add other shift times you use, like an 8a–5p opener or a 2p–10p closer. They show up as choices when you tap a shift. Turn on "Shuffle can use it" to let the shuffle assign it too.</p>`;
+  h += S.extraShifts.length ? S.extraShifts.map(x => `<div class="limit">
+      <div class="row"><div class="field"><label for="xg-${x.id}">Days</label><select id="xg-${x.id}" data-chg="xs" data-id="${x.id}" data-f="group">${Object.entries(GROUP_LABEL).map(([g, l]) => `<option value="${g}" ${x.group === g ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label for="xc-${x.id}">Counts as</label><select id="xc-${x.id}" data-chg="xs" data-id="${x.id}" data-f="countsAs"><option value="open" ${x.countsAs === 'open' ? 'selected' : ''}>Opener</option><option value="close" ${x.countsAs === 'close' ? 'selected' : ''}>Closer</option><option value="mid" ${x.countsAs === 'mid' ? 'selected' : ''}>Mid</option></select></div></div>
+      <div class="row"><div class="field"><label for="xs-${x.id}">Start</label><input type="time" id="xs-${x.id}" value="${x.start}" data-chg="xs" data-id="${x.id}" data-f="start"></div>
+      <div class="field"><label for="xe-${x.id}">End</label><input type="time" id="xe-${x.id}" value="${x.end}" data-chg="xs" data-id="${x.id}" data-f="end"></div></div>
+      <div class="confirm" style="justify-content:space-between;margin-top:0"><label class="check"><input type="checkbox" id="xa-${x.id}" data-chg="xs" data-id="${x.id}" data-f="auto" ${x.auto ? 'checked' : ''}> Shuffle can use it</label><span class="small muted">${fmtH(paidHours(x.start, x.end))}h paid</span><button class="btn small danger" data-act="xs-del" data-id="${x.id}">Remove</button></div>
+    </div>`).join('') : `<p class="small muted" style="margin:0 0 10px">No extra shift times yet.</p>`;
+  h += `<button class="btn small" data-act="xs-add">Add a shift time</button></div>`;
+  const where = Cloud.ready
+    ? 'Your team, rules and schedules are saved to a private space in your Claude account, so they stay safe if this device\'s data is cleared, and they appear on any device where you open the app signed in. Only you can see them.'
+    : STANDALONE
+    ? 'Your team, rules and schedules are saved on this device only. Nothing is sent anywhere. Save a backup file now and then so you can restore everything on a new phone or computer.'
+    : 'Your team, rules and schedules are saved only in this browser on this device. Phones can clear that data, especially for apps on the home screen. Save a backup file now and then, and after big changes.';
+  h += `<div class="card"><h2>Saving and backups</h2><p class="sub">${where}</p>
+    <div class="confirm"><button class="btn" data-act="backup-file">Save backup file</button><button class="btn" data-act="backup-copy">Copy backup text</button><button class="btn" data-act="backup-open">Restore from backup</button>
+    ${UI.confirmReset ? `<span>Erase everything and load the example team?</span><button class="btn danger small" data-act="reset">Erase</button><button class="btn small" data-act="reset-cancel">Cancel</button>` : `<button class="btn danger" data-act="reset-ask">Start over</button>`}</div></div>`;
+  return h;
+}
+
+/* ---------- sheets ---------- */
+const sheetBg = document.getElementById('sheetBg'), sheetEl = document.getElementById('sheet');
+function openSheet(s) { UI.sheet = s; renderSheet(); sheetBg.hidden = false; }
+function closeSheet() { UI.sheet = null; sheetBg.hidden = true; sheetEl.innerHTML = ''; render(); }
+function renderSheet() {
+  const s = UI.sheet; if (!s) return;
+  const head = (t, sub) => `<div class="sheet-head"><div><h2>${t}</h2>${sub ? `<p>${sub}</p>` : ''}</div><button class="iconbtn" data-act="close-sheet" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`;
+  if (s.type === 'cell') {
+    const ctx = buildCtx(UI.week), wk = S.weeks[UI.week]; normalizeWeek(ctx, wk);
+    const i = ctx.P.findIndex(p => p.id === s.pid); const p = ctx.P[i]; const d = s.d;
+    const cur = wk.cells[p.id][d]; const ds = dayStats(ctx, wk.cells);
+    const vals = ['open', 'close', 'mid', 'off']; for (const x of S.extraShifts) if (x.group === dayGroup(d)) vals.splice(vals.indexOf(x.countsAs) + 1, 0, 'x:' + x.id); if (isExtra(cur) && !vals.includes(cur)) vals.push(cur); if (p.custom[d]) vals.unshift('custom'); if (p.allowed[d][0] === 'pto' || cur === 'pto') vals.push('pto');
+    const mo = p.isMod && (!ds[d].moId || ds[d].moId === p.id) ? p.id : ds[d].moId;
+    let h = head(`${esc(p.name)} · ${DAYS_LONG[d]}`, `${shortDate(ctx.dates[d])}${p.reason[d] ? ' · ' + esc(p.reason[d]) : ''}`);
+    h += `<div class="opts">${vals.map(v => {
+      const k = kindOf(p, d, v), t = timesFor(p, d, v, mo);
+      const bad = !p.allowed[d].includes(baseOf(p, d, v)) && v !== 'off';
+      const lbl = v === 'custom' ? 'Limited hours' : isExtra(v) ? LABEL[k] + ' (extra)' : (v === 'open' && p.isMod && mo === p.id ? 'Open (MOD)' : LABEL[v]);
+      return `<button class="opt ${v === 'pto' ? 'pto' : isWork(v) ? k : 'off'}" data-act="set-cell" data-v="${v}" aria-pressed="${cur === v}"><span class="k">${lbl}</span><span class="t">${t ? fmtRange(t[0], t[1]) : v === 'pto' ? 'Time off' : 'Day off'}</span>${bad ? '<span class="why">Breaks a limit</span>' : ''}</button>`;
+    }).join('')}</div>`;
+    h += `<label class="check"><input type="checkbox" id="lockcell" data-chg="lock" ${wk.locks[p.id][d] ? 'checked' : ''}> Keep this shift when shuffling</label>`;
+    sheetEl.innerHTML = h; return;
+  }
+  if (s.type === 'person') {
+    const p = personById(s.id); if (!p) { closeSheet(); return; }
+    const inRot = S.rotation.includes(p.id);
+    let h = head('Edit ' + esc(p.name), p.role === 'MOD' ? 'Manager on duty' : NOHOURS(p.role) ? p.role : 'Associate');
+    h += `<div class="field"><label for="p-name">Name or nickname</label><input type="text" id="p-name" value="${esc(p.name)}" data-chg="p-name" maxlength="24" autocomplete="off"></div>`;
+    h += `<div class="row"><div class="field" style="flex-basis:100%"><span class="flabel">Role</span><div class="seg"><button data-act="p-role" data-v="Associate" aria-pressed="${p.role === 'Associate'}">Associate</button><button data-act="p-role" data-v="MOD" aria-pressed="${p.role === 'MOD'}">MOD</button><button data-act="p-role" data-v="ABOM" aria-pressed="${p.role === 'ABOM'}">ABOM</button><button data-act="p-role" data-v="BOM" aria-pressed="${p.role === 'BOM'}">BOM</button></div></div>
+      <div class="field"><span class="flabel">Status</span><div class="seg"><button data-act="p-type" data-v="FT" aria-pressed="${p.type === 'FT'}">Full-time</button><button data-act="p-type" data-v="PT" aria-pressed="${p.type === 'PT'}">Part-time</button></div></div></div>`;
+    if (MGR(p.role)) h += (NOHOURS(p.role) ? `<p class="small muted" style="margin:0 0 12px">${p.role}s count as a MOD for opening and closing coverage, and their hours aren't included in the team total. Set the days and hours they work with availability limits below.</p>` : '') + `<div class="field"><span class="flabel">Weekend group</span><div class="seg"><button data-act="p-group" data-v="A" aria-pressed="${p.modGroup === 'A'}">Group A</button><button data-act="p-group" data-v="B" aria-pressed="${p.modGroup === 'B'}">Group B</button><button data-act="p-group" data-v="none" aria-pressed="${p.modGroup === 'none'}">Own schedule</button></div></div>`
+      + (p.modGroup === 'none' ? '' : `<div class="field" style="max-width:260px"><label for="p-midoff">Weekday off in their working-weekend week</label><select id="p-midoff" data-chg="p-midoff">${[1, 2, 3, 4, 5].map(d => `<option value="${d}" ${(p.modMidOff == null ? 4 : +p.modMidOff) === d ? 'selected' : ''}>${DAYS_LONG[d]}</option>`).join('')}</select></div>`);
+    else h += `<label class="check" style="margin-bottom:12px"><input type="checkbox" id="p-rot" data-chg="p-rot" ${inRot ? 'checked' : ''}> In the associate weekend-off rotation</label>`;
+    h += `<div class="row"><div class="field"><label for="p-max">Max hours a week</label><input type="number" id="p-max" min="0" max="60" step="0.5" value="${p.maxHours}" data-chg="p-max"></div>
+      <div class="field"><label for="p-days">${p.type === 'FT' ? 'Days worked a week' : 'Days a week to aim for'}</label><input type="number" id="p-days" min="0" max="7" value="${p.daysPerWeek}" data-chg="p-days"></div></div>`;
+    h += `<h3 style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:8px 0">Availability limits</h3>`;
+    h += p.restrictions.map(r => `<div class="limit">
+      <div class="field"><span class="flabel">Days</span><div class="days">${DAYS.map((dn, d) => `<button data-act="r-day" data-rid="${r.id}" data-d="${d}" aria-pressed="${r.days.includes(d)}">${dn}</button>`).join('')}</div></div>
+      <div class="row"><div class="field"><label for="rk-${r.id}">Limit</label><select id="rk-${r.id}" data-chg="r-kind" data-rid="${r.id}">
+        <option value="off" ${r.kind === 'off' ? 'selected' : ''}>Not available</option><option value="custom" ${r.kind === 'custom' ? 'selected' : ''}>Only certain hours</option><option value="open" ${r.kind === 'open' ? 'selected' : ''}>Opening shifts only</option><option value="close" ${r.kind === 'close' ? 'selected' : ''}>Closing shifts only</option></select></div>
+      <div class="field"><label for="rw-${r.id}">Applies</label><select id="rw-${r.id}" data-chg="r-weeks" data-rid="${r.id}"><option value="every" ${r.weeks === 'every' ? 'selected' : ''}>Every week</option><option value="A" ${r.weeks === 'A' ? 'selected' : ''}>Week A only</option><option value="B" ${r.weeks === 'B' ? 'selected' : ''}>Week B only</option></select></div></div>
+      ${r.kind === 'custom' ? `<div class="row"><div class="field"><label for="rs-${r.id}">From</label><input type="time" id="rs-${r.id}" value="${r.start}" data-chg="r-start" data-rid="${r.id}"></div><div class="field"><label for="re-${r.id}">To</label><input type="time" id="re-${r.id}" value="${r.end}" data-chg="r-end" data-rid="${r.id}"></div>
+        <div class="field"><label for="rc-${r.id}">Counts as</label><select id="rc-${r.id}" data-chg="r-counts" data-rid="${r.id}"><option value="open" ${r.countsAs === 'open' ? 'selected' : ''}>Opener</option><option value="close" ${r.countsAs === 'close' ? 'selected' : ''}>Closer</option><option value="mid" ${r.countsAs === 'mid' ? 'selected' : ''}>Mid</option></select></div></div>` : ''}
+      <button class="btn small danger" data-act="r-del" data-rid="${r.id}">Remove limit</button></div>`).join('');
+    h += `<button class="btn small" data-act="r-add">Add a limit</button>`;
+    h += `<h3 style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px">Time off</h3>`;
+    h += `<div class="row" style="align-items:flex-end"><div class="field" style="margin:0"><label for="to-date">Date</label><input type="date" id="to-date" value="${UI.week}"></div><button class="btn" data-act="to-add" style="flex:none">Add day off</button></div>`;
+    h += `<div class="chips">${p.timeOff.slice().sort().map(dt => `<span class="xchip">${shortDate(dt)}, ${DAYS[parse(dt).getDay()]}<button data-act="to-del" data-date="${dt}" aria-label="Remove ${dt}">×</button></span>`).join('') || '<span class="small muted">None booked.</span>'}</div>`;
+    h += `<div style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px">${UI.confirmDel ? `<div class="confirm"><span>Remove ${esc(p.name)} from the team?</span><button class="btn danger small" data-act="p-del">Remove</button><button class="btn small" data-act="p-del-cancel">Cancel</button></div>` : `<button class="btn danger small" data-act="p-del-ask">Remove from team</button>`}</div>`;
+    sheetEl.innerHTML = h; return;
+  }
+  if (s.type === 'text') {
+    sheetEl.innerHTML = head(esc(s.title), 'Copying was blocked here. Select the text below and copy it.') + `<textarea id="copytext" readonly>${esc(s.text)}</textarea>`;
+    const ta = document.getElementById('copytext'); ta.focus(); ta.select(); return;
+  }
+  if (s.type === 'restore') {
+    sheetEl.innerHTML = head('Restore from backup', 'Choose a backup file, or paste backup text. This replaces everything currently in the app.') + `<div class="field"><label for="restorefile">Backup file</label><input type="file" id="restorefile" accept=".json,application/json,text/plain" data-chg="restore-file"></div><div class="field"><label for="restoretext">Or paste backup text</label><textarea id="restoretext" placeholder="Paste backup here"></textarea></div><div class="confirm"><button class="btn primary" data-act="restore">Restore</button><span class="small" id="restoreMsg" style="color:var(--bad)"></span></div>`;
+  }
+}
+
+/* ---------- actions ---------- */
+let toastT;
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800); }
+function copyText(txt, label) {
+  let p;
+  try { p = navigator.clipboard.writeText(txt); } catch (e) { p = Promise.reject(e); }
+  p.then(() => toast(label + ' copied'), () => openSheet({type: 'text', title: label, text: txt}));
+}
+function doShuffle(quiet) {
+  if (UI.busy) return;
+  UI.busy = true; render();
+  setTimeout(() => {
+    const ws = UI.week; const ctx = ensureWeek(ws); const wk = S.weeks[ws];
+    wk.cells = solve(ctx, wk.cells, wk.locks);
+    UI.busy = false; save(quiet === true); render();
+    const n = evaluate(ctx, wk.cells, true).issues.filter(x => x.sev === 'rule').length;
+    toast(n ? `Best possible schedule made. ${n} rule${n === 1 ? '' : 's'} couldn't be met; see the list.` : 'New schedule made. All rules met.');
+  }, 30);
+}
+function setWeek(ws) { UI.week = ws; S.ui = {week: ws}; save(true); render(); }
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]'); if (!el) { if (e.target === sheetBg) closeSheet(); return; }
+  const act = el.dataset.act;
+  const P = UI.sheet && UI.sheet.type === 'person' ? personById(UI.sheet.id) : null;
+  const R = P && el.dataset.rid ? P.restrictions.find(r => r.id === el.dataset.rid) : null;
+  switch (act) {
+    case 'tab': UI.tab = el.dataset.tab; render(); window.scrollTo(0, 0); break;
+    case 'wk-prev': setWeek(addDays(UI.week, -7)); break;
+    case 'wk-next': setWeek(addDays(UI.week, 7)); break;
+    case 'shuffle': doShuffle(); break;
+    case 'unlock-all': { const wk = S.weeks[UI.week]; if (wk) for (const k in wk.locks) wk.locks[k] = wk.locks[k].map(() => false); save(); render(); toast('All shifts unlocked'); break; }
+    case 'dismiss-example': S.settings.example = false; save(); render(); break;
+    case 'cell': openSheet({type: 'cell', pid: el.dataset.pid, d: +el.dataset.d}); break;
+    case 'set-cell': { const wk = S.weeks[UI.week]; const s = UI.sheet; wk.cells[s.pid][s.d] = el.dataset.v; wk.locks[s.pid][s.d] = true; save(); render(); closeSheet(); break; }
+    case 'close-sheet': UI.confirmDel = false; closeSheet(); break;
+    case 'add-person': { const p = {id: uid(), name: 'New person', role: 'Associate', type: 'FT', maxHours: 40, daysPerWeek: 5, modGroup: 'A', restrictions: [], timeOff: []}; S.people.push(p); S.rotation.push(p.id); save(); render(); openSheet({type: 'person', id: p.id}); setTimeout(() => { const i = document.getElementById('p-name'); if (i) { i.focus(); i.select(); } }, 50); break; }
+    case 'edit-person': UI.confirmDel = false; openSheet({type: 'person', id: el.dataset.id}); break;
+    case 'p-role': if (P) { P.role = el.dataset.v; if (P.role !== 'Associate') S.rotation = S.rotation.filter(id => id !== P.id); else if (!S.rotation.includes(P.id)) S.rotation.push(P.id); save(); renderSheet(); render(); } break;
+    case 'p-type': if (P) { P.type = el.dataset.v; if (P.type === 'PT' && P.maxHours === 40) P.maxHours = 30; if (P.type === 'FT' && P.maxHours === 30) P.maxHours = 40; save(); renderSheet(); render(); } break;
+    case 'p-group': if (P) { P.modGroup = el.dataset.v; save(); renderSheet(); render(); } break;
+    case 'r-add': if (P) { P.restrictions.push({id: uid(), days: [], weeks: 'every', kind: 'off', start: '15:00', end: '22:00', countsAs: 'close'}); save(); renderSheet(); render(); } break;
+    case 'r-del': if (P) { P.restrictions = P.restrictions.filter(r => r.id !== el.dataset.rid); save(); renderSheet(); render(); } break;
+    case 'r-day': if (R) { const d = +el.dataset.d; R.days = R.days.includes(d) ? R.days.filter(x => x !== d) : R.days.concat(d); save(); renderSheet(); render(); } break;
+    case 'to-add': if (P) { const v = document.getElementById('to-date').value; if (v && !P.timeOff.includes(v)) { P.timeOff.push(v); save(); renderSheet(); render(); } } break;
+    case 'to-del': if (P) { P.timeOff = P.timeOff.filter(x => x !== el.dataset.date); save(); renderSheet(); render(); } break;
+    case 'p-del-ask': UI.confirmDel = true; renderSheet(); break;
+    case 'p-del-cancel': UI.confirmDel = false; renderSheet(); break;
+    case 'p-del': if (P) { S.people = S.people.filter(x => x.id !== P.id); S.rotation = S.rotation.filter(id => id !== P.id); for (const w of Object.values(S.weeks)) { delete w.cells[P.id]; delete w.locks[P.id]; } UI.confirmDel = false; save(); closeSheet(); toast(P.name + ' removed'); } break;
+    case 'mod-flip': S.settings.modFlip = !S.settings.modFlip; save(); render(); break;
+    case 'parity-flip': S.settings.parityFlip = !S.settings.parityFlip; save(); render(); break;
+    case 'rot-back': S.settings.rotOffset = (S.settings.rotOffset | 0) - 1; save(); render(); break;
+    case 'rot-fwd': S.settings.rotOffset = (S.settings.rotOffset | 0) + 1; save(); render(); break;
+    case 'rot-up': case 'rot-down': {
+      const list = rotationList(); const i = list.indexOf(el.dataset.id); const j = act === 'rot-up' ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= list.length) break; [list[i], list[j]] = [list[j], list[i]]; S.rotation = list; save(); render(); break; }
+    case 'backup-copy': copyText(JSON.stringify(S), 'Backup'); break;
+    case 'backup-file': {
+      const txt = JSON.stringify(S), name = 'shift-planner-backup-' + iso(new Date()) + '.json';
+      if (!Cloud.dl) {
+        if (window.top === window) {
+          try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([txt], {type: 'application/json'})); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); toast('Backup file saved'); break; } catch (e) {}
+        }
+        copyText(txt, 'Backup'); break;
+      }
+      Cloud.dl.save({filename: name, data: txt}).then(() => toast('Backup file saved'), err => { if (!err || err.code !== 'declined') copyText(txt, 'Backup'); });
+      break; }
+    case 'backup-open': openSheet({type: 'restore'}); break;
+    case 'restore': {
+      const msg = document.getElementById('restoreMsg');
+      try { const s = JSON.parse(document.getElementById('restoretext').value); if (!s || !Array.isArray(s.people) || !s.shifts || !s.settings) throw 0; S = s; S.weeks = S.weeks || {}; S.rotation = S.rotation || []; syncExtra(); UI.week = (S.ui && S.ui.week) || UI.week; save(); closeSheet(); toast('Backup restored'); }
+      catch (err) { msg.textContent = "That doesn't look like a Shift Planner backup."; }
+      break; }
+    case 'reset-ask': UI.confirmReset = true; render(); break;
+    case 'reset-cancel': UI.confirmReset = false; render(); break;
+    case 'xs-add': S.extraShifts.push({id: uid(), group: 'weekday', start: '08:00', end: '17:00', countsAs: 'open', auto: false}); syncExtra(); save(); render(); break;
+    case 'xs-del': {
+      const x = S.extraShifts.find(z => z.id === el.dataset.id); if (!x) break;
+      const key = 'x:' + x.id;
+      for (const w of Object.values(S.weeks)) for (const id in w.cells) w.cells[id] = w.cells[id].map(v => v === key ? x.countsAs : v);
+      S.extraShifts = S.extraShifts.filter(z => z !== x); syncExtra(); save(); render(); toast('Shift time removed. Any shifts using it became standard ' + LABEL[x.countsAs].toLowerCase() + ' shifts.'); break; }
+    case 'reset': UI.confirmReset = false; S = defaultState(); syncExtra(); UI.week = S.ui.week; save(); UI.tab = 'schedule'; render(); doShuffle(); break;
+  }
+});
+document.addEventListener('change', e => {
+  const el = e.target.closest('[data-chg]'); if (!el) return;
+  const k = el.dataset.chg;
+  const P = UI.sheet && UI.sheet.type === 'person' ? personById(UI.sheet.id) : null;
+  const R = P && el.dataset.rid ? P.restrictions.find(r => r.id === el.dataset.rid) : null;
+  const num = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
+  if (k === 'setting') { S.settings[el.dataset.k] = num(el.value, 0, 20); save(); render(); return; }
+  if (k === 'restore-file') {
+    const f = el.files && el.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { const ta = document.getElementById('restoretext'); if (ta) ta.value = String(r.result || ''); };
+    r.onerror = () => { const m = document.getElementById('restoreMsg'); if (m) m.textContent = "That file couldn't be read."; };
+    r.readAsText(f); return;
+  }
+  if (k === 'xs') { const x = S.extraShifts.find(z => z.id === el.dataset.id); if (x) { const f = el.dataset.f; if (f === 'auto') x.auto = el.checked; else if (el.value) x[f] = el.value; syncExtra(); save(); render(); } return; }
+  if (k === 'shift') { if (el.value) { S.shifts[el.dataset.g][el.dataset.k][+el.dataset.i] = el.value; save(); render(); } return; }
+  if (k === 'lock') { const wk = S.weeks[UI.week]; const s = UI.sheet; wk.locks[s.pid][s.d] = el.checked; save(); render(); return; }
+  if (!P) return;
+  if (k === 'p-name') { P.name = el.value.trim().slice(0, 24) || 'Unnamed'; }
+  else if (k === 'p-max') P.maxHours = num(el.value, 0, 60);
+  else if (k === 'p-days') P.daysPerWeek = num(el.value, 0, 7);
+  else if (k === 'p-midoff') P.modMidOff = num(el.value, 1, 5);
+  else if (k === 'p-rot') { if (el.checked) { if (!S.rotation.includes(P.id)) S.rotation.push(P.id); } else S.rotation = S.rotation.filter(id => id !== P.id); }
+  else if (R && k === 'r-kind') R.kind = el.value;
+  else if (R && k === 'r-weeks') R.weeks = el.value;
+  else if (R && k === 'r-start') { if (el.value) R.start = el.value; }
+  else if (R && k === 'r-end') { if (el.value) R.end = el.value; }
+  else if (R && k === 'r-counts') R.countsAs = el.value;
+  save(); renderSheet(); render();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && UI.sheet) { UI.confirmDel = false; closeSheet(); } });
+
+save(true); render();
+if (firstRun) doShuffle(true);
+cloudInit();
+})();
+</script>
+
+</body>
+</html>
