@@ -502,7 +502,10 @@ function buildCtx(ws) {
       weekendWork: p.role === 'MOD' && p.modGroup !== modOff && p.modGroup !== 'none'
     };
   });
-  return {ws, wi, par, modOff, offSet, dates, P, hasPrev: !!prev};
+  // Are there enough closing slots (max closers x 7) for every full-timer to close twice?
+  const maxC = S.settings.maxClose == null ? 3 : S.settings.maxClose;
+  const closeRoom = !maxC || 7 * maxC >= 2 * P.filter(p => p.type === 'FT' && p.target >= 4 && p.closable >= 2).length;
+  return {ws, wi, par, modOff, offSet, dates, P, hasPrev: !!prev, closeRoom};
 }
 const kindOf = (p, d, v) => v === 'mopen' ? 'open' : v === 'custom' ? (p.custom[d] ? p.custom[d].countsAs : 'mid') : isExtra(v) ? (EXTRA[v] ? EXTRA[v].countsAs : 'mid') : v;
 const baseOf = (p, d, v) => isExtra(v) ? kindOf(p, d, v) : v;
@@ -520,7 +523,6 @@ function modOpeners(ctx, cells) {
   const out = new Array(7).fill(null);
   for (let d = 0; d < 7; d++) {
     for (const p of ctx.P) if (p.isMod && cells[p.id][d] === 'mopen') { out[d] = p.id; break; }
-    if (out[d] === null) for (const p of ctx.P) { const v = cells[p.id][d]; if (p.isMod && v !== 'open' && v !== 'mopen' && isWork(v) && kindOf(p, d, v) === 'open') { out[d] = p.id; break; } }
   }
   return out;
 }
@@ -532,10 +534,10 @@ function evaluate(ctx, cells, explain) {
   const P = ctx.P, n = P.length;
   const mo = modOpeners(ctx, cells);
   for (let d = 0; d < 7; d++) {
-    let o = 0, c = 0, m = 0, modO = false, modC = false, modCn = 0, mopen = 0, modOther = false;
+    let o = 0, c = 0, m = 0, modC = false, modCn = 0, mopen = 0, mopenBy = null;
     for (let i = 0; i < n; i++) {
       const p = P[i], k = kindOf(p, d, cells[p.id][d]);
-      if (k === 'open') { o++; if (p.isMod) { const v = cells[p.id][d]; if (v === 'mopen') mopen++; else if (v === 'open') modO = true; else modOther = true; } }
+      if (k === 'open') { o++; if (p.isMod && cells[p.id][d] === 'mopen') { mopen++; mopenBy = p; } }
       else if (k === 'close') { c++; if (p.isMod) { modC = true; modCn++; } }
       else if (k === 'mid') m++;
     }
@@ -547,14 +549,13 @@ function evaluate(ctx, cells, explain) {
     score += 8 * extraC * extraC;
     const maxO = st.maxOpen == null ? 6 : st.maxOpen;
     if (maxO > 0 && o > maxO) add(150 * (o - maxO), 'note', () => `${DAYS_LONG[d]} has ${o} openers. Try to keep it to ${maxO} or fewer.`, [['day', d]]);
+    const maxC = st.maxClose == null ? 3 : st.maxClose;
+    if (maxC > 0 && c > maxC) add(1000 * (c - maxC), 'rule', () => `${DAYS_LONG[d]} has ${c} closers. The most allowed is ${maxC}.`, [['day', d]]);
     if (un > 0) add(300 * un, 'rule', () => `${DAYS_LONG[d]} has ${o} opener${o === 1 ? '' : 's'} and ${c} closer${c === 1 ? '' : 's'}${m ? ' plus ' + m + ' mid' : ''}. It needs ${st.minOpen} and ${st.minClose}.`, [['day', d]]);
     else if (cov > 0 && explain) { const T = S.shifts[d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday'].mid; issues.push({sev: 'note', msg: `${DAYS_LONG[d]} uses a mid shift (${fmtRange(T[0], T[1])}) to cover a missing ${dO ? 'opener' : 'closer'}.`, refs: [['day', d]]}); }
     if (mopen > 1) add(300 * (mopen - 1), 'rule', () => `${DAYS_LONG[d]} has ${mopen} ${ANYS()} on the opening ${ANY()} shift. Only one gets it; others open at the regular time.`, [['day', d]]);
-    else if (mopen === 0 && !modOther) {
-      const T = S.shifts[dayGroup(d)].modOpen;
-      if (modO) add(200, 'rule', () => `${DAYS_LONG[d]} needs one ${ANY()} on the opening ${ANY()} shift (${fmtRange(T[0], T[1])}).`, [['day', d]]);
-      else add(200, 'rule', () => `${DAYS_LONG[d]} has no opening ${ANY()}.`, [['day', d]]);
-    }
+    else if (mopen === 0) { const T = S.shifts[dayGroup(d)].modOpen; add(300, 'rule', () => `${DAYS_LONG[d]} needs a ${RN('MOD')} on the opening ${ANY()} shift (${fmtRange(T[0], T[1])}).`, [['day', d]]); }
+    else if (mopenBy && mopenBy.role !== 'MOD') add(200, 'note', () => `${mopenBy.name} (${RN(mopenBy.role)}) has the opening ${ANY()} shift on ${DAYS_LONG[d]}. It usually goes to a ${RN('MOD')}.`, [[mopenBy.id, d]]);
     if (!modC) add(200, 'rule', () => `${DAYS_LONG[d]} has no closing ${ANY()}.`, [['day', d]]);
     if ((d === 0 || d === 6) && modCn > 1) add(300 * (modCn - 1), 'rule', () => `${DAYS_LONG[d]} has ${modCn} ${ANYS()} closing. Weekends have one closing ${ANY()}.`, [['day', d]]);
     else if (d > 0 && d < 6 && modCn > 2) add(300 * (modCn - 2), 'rule', () => `${DAYS_LONG[d]} has ${modCn} ${ANYS()} closing. Weekdays have at most 2.`, [['day', d]]);
@@ -588,7 +589,7 @@ function evaluate(ctx, cells, explain) {
     if (p.type === 'FT' && p.target >= 4 && p.isMod && p.closable >= 2) {
       if (closes !== 2) add(100 * Math.abs(closes - 2), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. ${ANYS()} close 2 times a week.`, [[p.id, 'row']]);
     } else if (p.type === 'FT' && p.target >= 4 && p.closable >= 2) {
-      if (closes < 2) add(60 * (2 - closes), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. The usual pattern is 2 or 3.`, [[p.id, 'row']]);
+      if (closes < 2 && ctx.closeRoom) add(60 * (2 - closes), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. The usual pattern is 2 or 3.`, [[p.id, 'row']]);
       if (closes > 3) add(60 * (closes - 3), 'note', () => `${p.name} closes ${closes} times. The usual pattern is 2 or 3.`, [[p.id, 'row']]);
       if (p.prevCloses === 3 && closes === 3) add(40, 'note', () => `${p.name} closed 3 times last week and closes 3 again.`, [[p.id, 'row']]);
       if (p.prevCloses === 2 && closes === 2) score += 10;
@@ -857,6 +858,8 @@ function renderRules() {
     <div class="field"><label for="minClose">Closers needed</label><input type="number" id="minClose" min="0" max="20" value="${st.minClose}" data-chg="setting" data-k="minClose"></div></div>
     <div class="field" style="max-width:260px"><label for="budgetDefault">Weekly hours budget</label><input type="number" id="budgetDefault" min="0" max="5000" step="0.5" inputmode="decimal" placeholder="none" value="${st.budget || ''}" data-chg="budget-default"></div>
     <p class="small muted" style="margin:0 0 8px">Each new week starts with this budget. Change any single week next to Team hours on the Schedule tab. Leave it empty for no budget.</p>
+    <div class="field" style="max-width:260px"><label for="maxClose">Most closers on one day</label><input type="number" id="maxClose" min="0" max="20" value="${st.maxClose == null ? 3 : st.maxClose}" data-chg="setting" data-k="maxClose"></div>
+    <p class="small muted" style="margin:0 0 8px">A firm limit: Shuffle never goes over it. When time off leaves a day one closer short, a mid shift covers the gap.</p>
     <div class="field" style="max-width:260px"><label for="maxOpen">Most openers on one day</label><input type="number" id="maxOpen" min="0" max="20" value="${st.maxOpen == null ? 6 : st.maxOpen}" data-chg="setting" data-k="maxOpen"></div>
     <p class="small muted" style="margin:0 0 8px">Shuffle spreads extra openers evenly across the week and tries to stay at or under this number. Set it to 0 to turn the limit off.</p>
     <p class="small muted" style="margin:0">If a day falls short, Shuffle adds a mid shift to fill the gap.</p></div>`;
@@ -949,8 +952,8 @@ function renderSheet() {
       <button class="btn small danger" data-act="r-del" data-rid="${r.id}">Remove limit</button></div>`).join('');
     h += `<button class="btn small" data-act="r-add">Add a limit</button>`;
     h += `<h3 style="font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px">Time off</h3>`;
-    h += `<div class="row" style="align-items:flex-end"><div class="field" style="margin:0"><label for="to-date">Date</label><input type="date" id="to-date" value="${UI.week}"></div><button class="btn" data-act="to-add" style="flex:none">Add day off</button></div>`;
-    h += `<div class="chips">${p.timeOff.slice().sort().map(dt => `<span class="xchip">${shortDate(dt)}, ${DAYS[parse(dt).getDay()]}<button data-act="to-del" data-date="${dt}" aria-label="Remove ${dt}">×</button></span>`).join('') || '<span class="small muted">None booked.</span>'}</div>`;
+    h += `<div class="row" style="align-items:flex-end"><div class="field" style="margin:0"><label for="to-from">From</label><input type="date" id="to-from" value="${UI.week}"></div><div class="field" style="margin:0"><label for="to-to">To (optional)</label><input type="date" id="to-to"></div><button class="btn" data-act="to-add" style="flex:none">Add time off</button></div>`;
+    h += `<div class="chips">${timeOffRanges(p.timeOff).map(r => { const lbl = r.length === 1 ? `${shortDate(r[0])}, ${DAYS[parse(r[0]).getDay()]}` : `${shortDate(r[0])} – ${shortDate(r[r.length - 1])} · ${r.length} days`; return `<span class="xchip">${lbl}<button data-act="to-del" data-dates="${r.join(',')}" aria-label="Remove ${lbl}">×</button></span>`; }).join('') || '<span class="small muted">None booked.</span>'}</div>`;
     h += `<div style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px">${UI.confirmDel ? `<div class="confirm"><span>Remove ${esc(p.name)} from the team?</span><button class="btn danger small" data-act="p-del">Remove</button><button class="btn small" data-act="p-del-cancel">Cancel</button></div>` : `<button class="btn danger small" data-act="p-del-ask">Remove from team</button>`}</div>`;
     sheetEl.innerHTML = h; return;
   }
@@ -963,6 +966,12 @@ function renderSheet() {
   }
 }
 
+/* Group booked dates into runs of consecutive days for display. */
+function timeOffRanges(dates) {
+  const out = [];
+  for (const dt of [...new Set(dates)].sort()) { const last = out[out.length - 1]; if (last && addDays(last[last.length - 1], 1) === dt) last.push(dt); else out.push([dt]); }
+  return out;
+}
 /* ---------- actions ---------- */
 let toastT;
 function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2800); }
@@ -1007,8 +1016,13 @@ document.addEventListener('click', e => {
     case 'r-add': if (P) { P.restrictions.push({id: uid(), days: [], weeks: 'every', kind: 'off', start: '15:00', end: '22:00', countsAs: 'close'}); save(); renderSheet(); render(); } break;
     case 'r-del': if (P) { P.restrictions = P.restrictions.filter(r => r.id !== el.dataset.rid); save(); renderSheet(); render(); } break;
     case 'r-day': if (R) { const d = +el.dataset.d; R.days = R.days.includes(d) ? R.days.filter(x => x !== d) : R.days.concat(d); save(); renderSheet(); render(); } break;
-    case 'to-add': if (P) { const v = document.getElementById('to-date').value; if (v && !P.timeOff.includes(v)) { P.timeOff.push(v); save(); renderSheet(); render(); } } break;
-    case 'to-del': if (P) { P.timeOff = P.timeOff.filter(x => x !== el.dataset.date); save(); renderSheet(); render(); } break;
+    case 'to-add': if (P) {
+      let a = document.getElementById('to-from').value, b = document.getElementById('to-to').value || a;
+      if (!a) break; if (b < a) [a, b] = [b, a];
+      const days = []; for (let dt = a; dt <= b && days.length < 120; dt = addDays(dt, 1)) days.push(dt);
+      const added = days.filter(dt => !P.timeOff.includes(dt)); P.timeOff.push(...added);
+      save(); renderSheet(); render(); toast(added.length ? `${added.length} day${added.length === 1 ? '' : 's'} of time off added for ${P.name}` : 'Those days were already booked'); } break;
+    case 'to-del': if (P) { const rm = new Set((el.dataset.dates || '').split(',')); P.timeOff = P.timeOff.filter(x => !rm.has(x)); save(); renderSheet(); render(); } break;
     case 'p-del-ask': UI.confirmDel = true; renderSheet(); break;
     case 'p-del-cancel': UI.confirmDel = false; renderSheet(); break;
     case 'p-del': if (P) { S.people = S.people.filter(x => x.id !== P.id); S.rotation = S.rotation.filter(id => id !== P.id); for (const w of Object.values(S.weeks)) { delete w.cells[P.id]; delete w.locks[P.id]; } UI.confirmDel = false; save(); closeSheet(); toast(P.name + ' removed'); } break;
