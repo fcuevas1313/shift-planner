@@ -100,6 +100,7 @@ main{padding-block:16px 48px;display:flex;flex-direction:column;gap:16px}
 .info{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
 .chip b{color:var(--ink);font-weight:600}
+.chip input{width:72px;padding:2px 6px;border-radius:6px;font-size:13px;font-family:var(--font-mono)}
 .chip.good{background:var(--good-soft);border-color:transparent;color:var(--good)}
 .chip.bad{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
 .chip.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
@@ -583,6 +584,7 @@ function evaluate(ctx, cells, explain) {
     if (!p.isMod) { const tail = trailing(row); if (tail >= 5) score += 60; else if (tail === 4) score += 15; }
     if (!p.isMod && maxR > 5) add(1000 * (maxR - 5), 'rule', () => `${p.name} works ${maxR} days in a row${p.carry ? ', counting the end of last week' : ''}. The limit is 5.`, [[p.id, 'row']]);
     else if (!p.isMod && maxR === 5 && p.prevFive) add(150, 'note', () => `${p.name} works 5 days in a row for the second week running.`, [[p.id, 'row']]);
+    if (p.isMod) { const moCnt = row.reduce((n, v) => n + (v === 'mopen' ? 1 : 0), 0); score += 15 * moCnt * moCnt; }
     if (p.type === 'FT' && p.target >= 4 && p.isMod && p.closable >= 2) {
       if (closes !== 2) add(100 * Math.abs(closes - 2), 'note', () => `${p.name} closes ${closes} time${closes === 1 ? '' : 's'}. ${ANYS()} close 2 times a week.`, [[p.id, 'row']]);
     } else if (p.type === 'FT' && p.target >= 4 && p.closable >= 2) {
@@ -773,8 +775,11 @@ function renderSchedule() {
   for (const is of rules) for (const [a, b] of is.refs) { if (a === 'day') flagDay.add(b); else if (b === 'row') flagRow.add(a); else flagCell.add(a + ':' + b); }
   const ds = dayStats(ctx, wk.cells), ps = personStats(ctx, wk.cells);
   const teamHours = ctx.P.reduce((sum, p, i) => sum + (p.isAbom ? 0 : ps[i].h), 0);
+  const budget = wk.budget != null ? wk.budget : (S.settings.budget || null);
+  const overBy = budget ? Math.round((teamHours - budget) * 100) / 100 : null;
+  if (overBy > 0) notes.push({sev: 'note', msg: `Team hours are ${fmtH(overBy)} over this week's budget of ${fmtH(budget)}.`, refs: []});
   h += infoChips(ctx);
-  h += `<div class="info">${rules.length ? `<span class="chip bad"><b style="color:inherit">${rules.length}</b> rule${rules.length === 1 ? '' : 's'} broken</span>` : `<span class="chip good">All rules met</span>`}${notes.length ? `<span class="chip warn">${notes.length} note${notes.length === 1 ? '' : 's'}</span>` : ''}<span class="chip">Team hours: <b>${fmtH(teamHours)}</b></span>${Object.values(wk.locks).some(r => r.some(Boolean)) ? `<button class="btn small" data-act="unlock-all">Unlock all</button>` : ''}</div>`;
+  h += `<div class="info">${rules.length ? `<span class="chip bad"><b style="color:inherit">${rules.length}</b> rule${rules.length === 1 ? '' : 's'} broken</span>` : `<span class="chip good">All rules met</span>`}${notes.length ? `<span class="chip warn">${notes.length} note${notes.length === 1 ? '' : 's'}</span>` : ''}<span class="chip ${overBy > 0 ? 'warn' : ''}">Team hours: <b${overBy > 0 ? ' style="color:inherit"' : ''}>${fmtH(teamHours)}</b>${budget ? ` of ${fmtH(budget)} · ${overBy > 0 ? fmtH(overBy) + ' over' : overBy < 0 ? fmtH(-overBy) + ' under' : 'on budget'}` : ''}</span><label class="chip" for="wk-budget">Budget <input type="number" id="wk-budget" min="0" max="5000" step="0.5" inputmode="decimal" placeholder="none" value="${budget == null ? '' : budget}" data-chg="budget-week" aria-label="Hours budget for this week"></label>${Object.values(wk.locks).some(r => r.some(Boolean)) ? `<button class="btn small" data-act="unlock-all">Unlock all</button>` : ''}</div>`;
   h += `<div class="gridwrap"><table class="grid"><thead><tr><th class="namecol">Team</th>`;
   DAYS.forEach((dn, d) => { h += `<th class="${flagDay.has(d) ? 'flag' : ''}">${dn}<small>${shortDate(ctx.dates[d]).split(' ')[1]}</small></th>`; });
   h += `</tr></thead><tbody>`;
@@ -798,7 +803,7 @@ function renderSchedule() {
   if (ds.some(x => x.m)) h += `<tr><th class="namecol">Mids</th>${ds.map(x => `<td>${x.m || ''}</td>`).join('')}</tr>`;
   h += `</tfoot></table></div>`;
   h += `<div class="legend"><span><span class="sw" style="background:var(--open-bg)"></span>Open</span><span><span class="sw" style="background:var(--close-bg)"></span>Close</span><span><span class="sw" style="background:var(--mid-bg)"></span>Mid</span><span><span class="sw" style="background:var(--pto-bg)"></span>Time off</span><span>${ANY().length <= 5 ? esc(ANY()) : '●'} = opening ${esc(ANY())}</span><span>* = limited hours</span><span>Tap a shift to change it. Changed shifts get locked so Shuffle keeps them.</span></div>`;
-  if (ev.issues.length) {
+  if (rules.length || notes.length) {
     h += `<div class="card"><h2>Check before you finalize</h2><p class="sub">Red items break a rule. Amber items are worth a look.</p><ul class="issues">${[...rules, ...notes].map(x => `<li class="${x.sev}"><span class="dot"></span><span>${esc(x.msg)}</span></li>`).join('')}</ul></div>`;
   }
   h += `<div class="cols">
@@ -850,6 +855,8 @@ function renderRules() {
   h += `<div class="card"><h2>Coverage</h2><p class="sub">Minimums for every day. ${esc(ANYS())} count toward these.</p><div class="row">
     <div class="field"><label for="minOpen">Openers needed</label><input type="number" id="minOpen" min="0" max="20" value="${st.minOpen}" data-chg="setting" data-k="minOpen"></div>
     <div class="field"><label for="minClose">Closers needed</label><input type="number" id="minClose" min="0" max="20" value="${st.minClose}" data-chg="setting" data-k="minClose"></div></div>
+    <div class="field" style="max-width:260px"><label for="budgetDefault">Weekly hours budget</label><input type="number" id="budgetDefault" min="0" max="5000" step="0.5" inputmode="decimal" placeholder="none" value="${st.budget || ''}" data-chg="budget-default"></div>
+    <p class="small muted" style="margin:0 0 8px">Each new week starts with this budget. Change any single week next to Team hours on the Schedule tab. Leave it empty for no budget.</p>
     <div class="field" style="max-width:260px"><label for="maxOpen">Most openers on one day</label><input type="number" id="maxOpen" min="0" max="20" value="${st.maxOpen == null ? 6 : st.maxOpen}" data-chg="setting" data-k="maxOpen"></div>
     <p class="small muted" style="margin:0 0 8px">Shuffle spreads extra openers evenly across the week and tries to stay at or under this number. Set it to 0 to turn the limit off.</p>
     <p class="small muted" style="margin:0">If a day falls short, Shuffle adds a mid shift to fill the gap.</p></div>`;
@@ -1046,6 +1053,8 @@ document.addEventListener('change', e => {
   const P = UI.sheet && UI.sheet.type === 'person' ? personById(UI.sheet.id) : null;
   const R = P && el.dataset.rid ? P.restrictions.find(r => r.id === el.dataset.rid) : null;
   const num = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
+  if (k === 'budget-default') { const v = parseFloat(el.value); S.settings.budget = v > 0 ? Math.min(5000, v) : null; save(); render(); return; }
+  if (k === 'budget-week') { const wk = S.weeks[UI.week]; if (wk) { const v = parseFloat(el.value); if (el.value === '') delete wk.budget; else if (v >= 0) wk.budget = Math.min(5000, v); save(); render(); } return; }
   if (k === 'setting') { S.settings[el.dataset.k] = num(el.value, 0, 20); save(); render(); return; }
   if (k === 'rolename') { S.roleNames = Object.assign({}, ROLE_DEFAULTS, S.roleNames || {}); S.roleNames[el.dataset.k] = el.value.trim().slice(0, 24) || ROLE_DEFAULTS[el.dataset.k]; save(); render(); return; }
   if (k === 'restore-file') {
