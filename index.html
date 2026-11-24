@@ -274,7 +274,8 @@ const ANY = () => RN('any'), ANYS = () => plural(RN('any'));
 const SHORT = w => { if (w.length <= 5) return w; const t = w.match(/\d+|[A-Za-z]+/g) || [w]; return t.length > 1 ? t.map(x => /\d/.test(x) ? x : x[0].toUpperCase()).join('').slice(0, 5) : w.slice(0, 5); };
 function migrate(st) { if (st && !st.roleNames) st.roleNames = Object.assign({}, ROLE_ORIGINAL); return st; }
 const isExtra = v => typeof v === 'string' && v.charCodeAt(0) === 120 && v[1] === ':';
-const isWork = v => v === 'open' || v === 'close' || v === 'mid' || v === 'custom' || isExtra(v);
+const isWork = v => v === 'open' || v === 'mopen' || v === 'close' || v === 'mid' || v === 'custom' || isExtra(v);
+const normOpen = v => v === 'mopen' ? 'open' : v;
 const dayGroup = d => d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday';
 const GROUP_LABEL = {weekday: 'Mon–Fri', sat: 'Saturday', sun: 'Sunday'};
 let EXTRA = {};
@@ -469,6 +470,7 @@ function buildCtx(ws) {
       else if (kinds.has('custom')) { c = rs.find(x => x.kind === 'custom'); a = ['off', 'custom']; r = 'limited to ' + fmtRange(c.start, c.end); }
       else if (kinds.has('open') && !kinds.has('close')) { a = ['off', 'open']; r = 'opening shifts only'; }
       else if (kinds.has('close') && !kinds.has('open')) { a = ['off', 'close']; r = 'closing shifts only'; }
+      if (MGR(p.role) && a.includes('open')) a.splice(a.indexOf('open') + 1, 0, 'mopen');
       const wkend = d === 0 || d === 6;
       if (d === 6 && p.role === 'Associate' && offSet.has(p.id)) { a = ['off']; r = 'starting their weekend off'; }
       if (d === 0 && p.role === 'Associate' && prevOffSet.has(p.id)) { a = ['off']; r = 'finishing their weekend off'; }
@@ -501,11 +503,12 @@ function buildCtx(ws) {
   });
   return {ws, wi, par, modOff, offSet, dates, P, hasPrev: !!prev};
 }
-const kindOf = (p, d, v) => v === 'custom' ? (p.custom[d] ? p.custom[d].countsAs : 'mid') : isExtra(v) ? (EXTRA[v] ? EXTRA[v].countsAs : 'mid') : v;
+const kindOf = (p, d, v) => v === 'mopen' ? 'open' : v === 'custom' ? (p.custom[d] ? p.custom[d].countsAs : 'mid') : isExtra(v) ? (EXTRA[v] ? EXTRA[v].countsAs : 'mid') : v;
 const baseOf = (p, d, v) => isExtra(v) ? kindOf(p, d, v) : v;
 function timesFor(p, d, v, modOpenerId) {
   const T = S.shifts[d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday'];
-  if (v === 'open') return (p.isMod && modOpenerId === p.id) ? T.modOpen : T.open;
+  if (v === 'mopen') return T.modOpen;
+  if (v === 'open') return T.open;
   if (v === 'close') return p.isMod ? T.modClose : T.close;
   if (v === 'mid') return T.mid;
   if (v === 'custom' && p.custom[d]) return [p.custom[d].start, p.custom[d].end];
@@ -515,8 +518,8 @@ function timesFor(p, d, v, modOpenerId) {
 function modOpeners(ctx, cells) {
   const out = new Array(7).fill(null);
   for (let d = 0; d < 7; d++) {
-    for (const p of ctx.P) if (p.isMod && cells[p.id][d] === 'open') { out[d] = p.id; break; }
-    if (out[d] === null) for (const p of ctx.P) { const v = cells[p.id][d]; if (p.isMod && v !== 'open' && isWork(v) && kindOf(p, d, v) === 'open') { out[d] = p.id; break; } }
+    for (const p of ctx.P) if (p.isMod && cells[p.id][d] === 'mopen') { out[d] = p.id; break; }
+    if (out[d] === null) for (const p of ctx.P) { const v = cells[p.id][d]; if (p.isMod && v !== 'open' && v !== 'mopen' && isWork(v) && kindOf(p, d, v) === 'open') { out[d] = p.id; break; } }
   }
   return out;
 }
@@ -528,10 +531,10 @@ function evaluate(ctx, cells, explain) {
   const P = ctx.P, n = P.length;
   const mo = modOpeners(ctx, cells);
   for (let d = 0; d < 7; d++) {
-    let o = 0, c = 0, m = 0, modO = false, modC = false, modCn = 0;
+    let o = 0, c = 0, m = 0, modO = false, modC = false, modCn = 0, mopen = 0, modOther = false;
     for (let i = 0; i < n; i++) {
       const p = P[i], k = kindOf(p, d, cells[p.id][d]);
-      if (k === 'open') { o++; if (p.isMod) modO = true; }
+      if (k === 'open') { o++; if (p.isMod) { const v = cells[p.id][d]; if (v === 'mopen') mopen++; else if (v === 'open') modO = true; else modOther = true; } }
       else if (k === 'close') { c++; if (p.isMod) { modC = true; modCn++; } }
       else if (k === 'mid') m++;
     }
@@ -545,7 +548,12 @@ function evaluate(ctx, cells, explain) {
     if (maxO > 0 && o > maxO) add(150 * (o - maxO), 'note', () => `${DAYS_LONG[d]} has ${o} openers. Try to keep it to ${maxO} or fewer.`, [['day', d]]);
     if (un > 0) add(300 * un, 'rule', () => `${DAYS_LONG[d]} has ${o} opener${o === 1 ? '' : 's'} and ${c} closer${c === 1 ? '' : 's'}${m ? ' plus ' + m + ' mid' : ''}. It needs ${st.minOpen} and ${st.minClose}.`, [['day', d]]);
     else if (cov > 0 && explain) { const T = S.shifts[d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday'].mid; issues.push({sev: 'note', msg: `${DAYS_LONG[d]} uses a mid shift (${fmtRange(T[0], T[1])}) to cover a missing ${dO ? 'opener' : 'closer'}.`, refs: [['day', d]]}); }
-    if (!modO) add(200, 'rule', () => `${DAYS_LONG[d]} has no opening ${ANY()}.`, [['day', d]]);
+    if (mopen > 1) add(300 * (mopen - 1), 'rule', () => `${DAYS_LONG[d]} has ${mopen} ${ANYS()} on the opening ${ANY()} shift. Only one gets it; others open at the regular time.`, [['day', d]]);
+    else if (mopen === 0 && !modOther) {
+      const T = S.shifts[dayGroup(d)].modOpen;
+      if (modO) add(200, 'rule', () => `${DAYS_LONG[d]} needs one ${ANY()} on the opening ${ANY()} shift (${fmtRange(T[0], T[1])}).`, [['day', d]]);
+      else add(200, 'rule', () => `${DAYS_LONG[d]} has no opening ${ANY()}.`, [['day', d]]);
+    }
     if (!modC) add(200, 'rule', () => `${DAYS_LONG[d]} has no closing ${ANY()}.`, [['day', d]]);
     if ((d === 0 || d === 6) && modCn > 1) add(300 * (modCn - 1), 'rule', () => `${DAYS_LONG[d]} has ${modCn} ${ANYS()} closing. Weekends have one closing ${ANY()}.`, [['day', d]]);
     else if (d > 0 && d < 6 && modCn > 2) add(300 * (modCn - 2), 'rule', () => `${DAYS_LONG[d]} has ${modCn} ${ANYS()} closing. Weekdays have at most 2.`, [['day', d]]);
@@ -587,9 +595,10 @@ function evaluate(ctx, cells, explain) {
       const oc = v => v === 'open' || v === 'close';
       const sun = kindOf(p, 0, row[0]), sat = kindOf(p, 6, row[6]);
       // Sunday finishes the weekend that started last Saturday: same role both days.
-      if (oc(sun) && oc(p.prevSat) && sun !== p.prevSat) add(150, 'note', () => `${p.name} ${p.prevSat === 'open' ? 'opened' : 'closed'} last Saturday, so they should ${p.prevSat} this Sunday too.`, [[p.id, 0]]);
+      const pSat = normOpen(p.prevSat), pSun = normOpen(p.prevSun), p2Sat = normOpen(p.prev2Sat);
+      if (oc(sun) && oc(pSat) && sun !== pSat) add(150, 'note', () => `${p.name} ${pSat === 'open' ? 'opened' : 'closed'} last Saturday, so they should ${pSat} this Sunday too.`, [[p.id, 0]]);
       // Saturday starts a new working weekend: switch from their last working weekend.
-      const last = oc(p.prevSun) ? p.prevSun : oc(p.prev2Sat) ? p.prev2Sat : null;
+      const last = oc(pSun) ? pSun : oc(p2Sat) ? p2Sat : null;
       if (oc(sat) && last && sat === last) add(150, 'note', () => `${p.name} ${last === 'open' ? 'opened' : 'closed'} their last working weekend, so they should ${last === 'open' ? 'close' : 'open'} this one.`, [[p.id, 6]]);
     }
     if (!p.isMod && isWork(row[6]) && (p.prevSat === 'open' || p.prevSat === 'close')) {
@@ -668,6 +677,14 @@ function solve(ctx, base, locks) {
 /* ---------- week storage ---------- */
 function normalizeWeek(ctx, wk) {
   wk.cells = wk.cells || {}; wk.locks = wk.locks || {};
+  if (!wk.v2) {
+    for (let d = 0; d < 7; d++) {
+      if (ctx.P.some(p => wk.cells[p.id] && wk.cells[p.id][d] === 'mopen')) continue;
+      const first = ctx.P.find(p => p.isMod && wk.cells[p.id] && wk.cells[p.id][d] === 'open');
+      if (first) wk.cells[first.id][d] = 'mopen';
+    }
+    wk.v2 = true;
+  }
   for (const p of ctx.P) {
     if (!wk.cells[p.id]) wk.cells[p.id] = p.allowed.map(a => a[0] === 'pto' ? 'pto' : 'off');
     if (!wk.locks[p.id]) wk.locks[p.id] = [false, false, false, false, false, false, false];
@@ -768,7 +785,7 @@ function renderSchedule() {
       const v = wk.cells[p.id][d], k = kindOf(p, d, v), t = isWork(v) ? timesFor(p, d, v, ds[d].moId) : null;
       let label = LABEL[k] || 'Off';
       let moMark = false;
-      if (p.isMod && v === 'open' && ds[d].moId === p.id) { if (ANY().length <= 5) label = ANY(); else moMark = true; }
+      if (v === 'mopen') { if (ANY().length <= 5) label = ANY(); else moMark = true; }
       const cls = v === 'pto' ? 'pto' : isWork(v) ? k : 'off';
       h += `<td><button class="cell ${cls} ${flagCell.has(p.id + ':' + d) ? 'flag' : ''}" data-act="cell" data-pid="${p.id}" data-d="${d}" aria-label="${esc(p.name)} ${DAYS_LONG[d]}: ${label}${t ? ' ' + fmtRange(t[0], t[1]) : ''}">${v === 'custom' ? '<span class="lim">*</span>' : ''}${moMark ? '<span class="lim">●</span>' : ''}${wk.locks[p.id][d] ? LOCK_SVG : ''}<span class="k">${label}</span>${t ? `<span class="t">${fmtRange(t[0], t[1])}</span>` : ''}</button></td>`;
     }
@@ -890,13 +907,13 @@ function renderSheet() {
     const ctx = buildCtx(UI.week), wk = S.weeks[UI.week]; normalizeWeek(ctx, wk);
     const i = ctx.P.findIndex(p => p.id === s.pid); const p = ctx.P[i]; const d = s.d;
     const cur = wk.cells[p.id][d]; const ds = dayStats(ctx, wk.cells);
-    const vals = ['open', 'close', 'mid', 'off']; for (const x of S.extraShifts) if (x.group === dayGroup(d)) vals.splice(vals.indexOf(x.countsAs) + 1, 0, 'x:' + x.id); if (isExtra(cur) && !vals.includes(cur)) vals.push(cur); if (p.custom[d]) vals.unshift('custom'); if (p.allowed[d][0] === 'pto' || cur === 'pto') vals.push('pto');
+    const vals = p.isMod ? ['mopen', 'open', 'close', 'mid', 'off'] : ['open', 'close', 'mid', 'off']; for (const x of S.extraShifts) if (x.group === dayGroup(d)) vals.splice(vals.indexOf(x.countsAs) + 1, 0, 'x:' + x.id); if (isExtra(cur) && !vals.includes(cur)) vals.push(cur); if (p.custom[d]) vals.unshift('custom'); if (p.allowed[d][0] === 'pto' || cur === 'pto') vals.push('pto');
     const mo = p.isMod && (!ds[d].moId || ds[d].moId === p.id) ? p.id : ds[d].moId;
     let h = head(`${esc(p.name)} · ${DAYS_LONG[d]}`, `${shortDate(ctx.dates[d])}${p.reason[d] ? ' · ' + esc(p.reason[d]) : ''}`);
     h += `<div class="opts">${vals.map(v => {
       const k = kindOf(p, d, v), t = timesFor(p, d, v, mo);
       const bad = !p.allowed[d].includes(baseOf(p, d, v)) && v !== 'off';
-      const lbl = v === 'custom' ? 'Limited hours' : isExtra(v) ? LABEL[k] + ' (extra)' : (v === 'open' && p.isMod && mo === p.id ? 'Open (' + esc(ANY()) + ')' : LABEL[v]);
+      const lbl = v === 'custom' ? 'Limited hours' : isExtra(v) ? LABEL[k] + ' (extra)' : (v === 'mopen' ? 'Opening ' + esc(ANY()) : LABEL[v]);
       return `<button class="opt ${v === 'pto' ? 'pto' : isWork(v) ? k : 'off'}" data-act="set-cell" data-v="${v}" aria-pressed="${cur === v}"><span class="k">${lbl}</span><span class="t">${t ? fmtRange(t[0], t[1]) : v === 'pto' ? 'Time off' : 'Day off'}</span>${bad ? '<span class="why">Breaks a limit</span>' : ''}</button>`;
     }).join('')}</div>`;
     h += `<label class="check"><input type="checkbox" id="lockcell" data-chg="lock" ${wk.locks[p.id][d] ? 'checked' : ''}> Keep this shift when shuffling</label>`;
