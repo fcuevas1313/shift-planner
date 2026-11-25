@@ -296,6 +296,7 @@ textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:ver
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, e => e.preventDefault(), {passive: false});
 document.addEventListener('touchmove', e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, {passive: false});
 const KEY = 'shiftPlanner.v1';
+const APP_VERSION = '2026.11.25-2243';
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DAYS_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -975,6 +976,7 @@ function applyPrefs() {
   UI.themeSet = pr.theme === 'light' || pr.theme === 'dark';
 }
 function renderSettings() {
+  const versionLine = `<p class="small muted" style="text-align:center;margin:4px 0 0">Shift Planner · version ${APP_VERSION}</p>`;
   const pr = S.prefs || {}, text = pr.text || '1', theme = pr.theme || 'system';
   let h = `<div class="card"><h2>Display</h2><p class="sub">These change how the app looks on this screen. Your team and schedules aren't affected.</p>
     <div class="field"><span class="flabel">Text size</span><div class="seg">${TEXT_SIZES.map(([v, l]) => `<button data-act="pref-text" data-v="${v}" aria-pressed="${text === v}">${l}</button>`).join('')}</div></div>
@@ -988,6 +990,7 @@ function renderSettings() {
   h += `<div class="card"><h2>Saving and backups</h2><p class="sub">${where}</p>
     <div class="confirm"><button class="btn" data-act="backup-file">Save backup file</button><button class="btn" data-act="backup-copy">Copy backup text</button><button class="btn" data-act="backup-open">Restore from backup</button>
     ${UI.confirmReset ? `<span>Erase everything and load the example team?</span><button class="btn danger small" data-act="reset">Erase</button><button class="btn small" data-act="reset-cancel">Cancel</button>` : `<button class="btn danger" data-act="reset-ask">Start over</button>`}</div></div>`;
+  h += versionLine;
   return h;
 }
 
