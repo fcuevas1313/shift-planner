@@ -81,9 +81,11 @@ header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background
 .top-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:10px 6px}
 .brand{font-weight:700;font-size:17px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
 .brand svg{color:var(--accent-text)}
-.tabs{display:flex;gap:4px;padding-block:4px 8px}
-.tab{flex:1 1 0;min-width:0;white-space:nowrap;border:0;background:transparent;padding:8px 4px;border-radius:8px;font-weight:600;color:var(--muted)}
-.tab[aria-selected="true"]{background:var(--accent-soft);color:var(--accent-text)}
+.tabs{display:flex;gap:4px;padding-block:4px 8px;position:relative}
+.tab-ind{position:absolute;left:0;top:4px;bottom:8px;width:0;border-radius:8px;background:var(--accent-soft);pointer-events:none;transition:transform .32s cubic-bezier(.3,.8,.3,1),width .32s cubic-bezier(.3,.8,.3,1)}
+.tab-ind.no-anim{transition:none}
+.tab{flex:1 1 0;min-width:0;white-space:nowrap;border:0;background:transparent;position:relative;z-index:1;transition:color .2s;padding:8px 4px;border-radius:8px;font-weight:600;color:var(--muted)}
+.tab[aria-selected="true"]{color:var(--accent-text)}
 main{padding-block:16px 48px;display:flex;flex-direction:column;gap:16px}
 
 .weekbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -210,6 +212,9 @@ textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:ver
 .shiftrows{display:flex;flex-direction:column;gap:10px}
 .shiftrow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px 8px;align-items:center;padding-bottom:10px;border-bottom:1px solid var(--line)}
 .shiftrow:last-child{border-bottom:0;padding-bottom:0}
+.shiftrow.added{grid-template-columns:minmax(0,1fr) minmax(0,1fr);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:10px}
+.shiftrow .sr-sel{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.shiftrow .sr-foot{grid-column:1 / -1;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .shiftrow .sr-label{grid-column:1 / -1;font-size:13px;font-weight:600}
 .shiftrow input{font-family:var(--font-mono);font-size:14px;padding:8px}
 .shiftrow .sr-paid{font-family:var(--font-mono);font-size:12px;color:var(--muted);text-align:right;white-space:nowrap}
@@ -259,7 +264,7 @@ textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:ver
       </div>
       <span class="small muted" id="savedNote"></span>
     </div>
-    <nav class="tabs" role="tablist">
+    <nav class="tabs" role="tablist"><span class="tab-ind" id="tabInd" aria-hidden="true"></span>
       <button class="tab" role="tab" data-act="tab" data-tab="schedule" id="tab-schedule">Schedule</button>
       <button class="tab" role="tab" data-act="tab" data-tab="team" id="tab-team">Team</button>
       <button class="tab" role="tab" data-act="tab" data-tab="rules" id="tab-rules">Rules</button>
@@ -302,6 +307,8 @@ const normOpen = v => v === 'mopen' ? 'open' : v;
 const dayGroup = d => d === 0 ? 'sun' : d === 6 ? 'sat' : 'weekday';
 const GROUP_LABEL = {weekday: 'Mon–Fri', sat: 'Saturday', sun: 'Sunday'};
 let EXTRA = {};
+const forWho = (x, type) => !x.who || x.who === 'all' || x.who === type;
+const WHO_LABEL = {all: 'Everyone', FT: 'Full-timers', PT: 'Part-timers'};
 function syncExtra() { S.extraShifts = S.extraShifts || []; EXTRA = {}; for (const x of S.extraShifts) EXTRA['x:' + x.id] = x; }
 const pick = a => a[Math.floor(Math.random() * a.length)];
 const mod = (a, n) => ((a % n) + n) % n;
@@ -590,6 +597,7 @@ function evaluate(ctx, cells, explain) {
     let work = 0, hrs = 0, closes = 0, run = p.carry, maxR = 0;
     for (let d = 0; d < 7; d++) {
       const v = row[d];
+      if (isExtra(v) && EXTRA[v] && !forWho(EXTRA[v], p.type)) add(100, 'note', () => `${p.name} has a ${WHO_LABEL[EXTRA[v].who].toLowerCase().replace(/s$/, '')} shift on ${DAYS_LONG[d]} (${fmtRange(EXTRA[v].start, EXTRA[v].end)}).`, [[p.id, d]]);
       if (!p.allowed[d].includes(baseOf(p, d, v))) {
         if (v === 'pto') { if (explain) issues.push({sev: 'note', msg: `${p.name} is marked PTO on ${DAYS[d]} but has no time off that day.`, refs: [[p.id, d]]}); }
         else if (p.allowed[d][0] === 'pto') add(1000, 'rule', () => `${p.name} is on time off ${DAYS_LONG[d]}.`, [[p.id, d]]);
@@ -645,7 +653,7 @@ function solve(ctx, base, locks) {
   const P = ctx.P;
   const auto = S.extraShifts.filter(x => x.auto && (S.settings.allowMid !== false || x.countsAs !== 'mid'));
   const noMid = S.settings.allowMid === false;
-  const opts = P.map(p => p.allowed.map((a, d) => (locks[p.id] && locks[p.id][d]) ? [base[p.id][d]] : (noMid ? a.filter(v => v !== 'mid') : a).concat(auto.filter(x => x.group === dayGroup(d) && a.includes(x.countsAs)).map(x => 'x:' + x.id))));
+  const opts = P.map(p => p.allowed.map((a, d) => (locks[p.id] && locks[p.id][d]) ? [base[p.id][d]] : (noMid ? a.filter(v => v !== 'mid') : a).concat(auto.filter(x => x.group === dayGroup(d) && forWho(x, p.type) && a.includes(x.countsAs)).map(x => 'x:' + x.id))));
   const M = [], Md = P.map(() => []);
   P.forEach((p, i) => { for (let d = 0; d < 7; d++) if (opts[i][d].length > 1) { M.push([i, d]); Md[i].push(d); } });
   let best = null, bestS = Infinity;
@@ -756,9 +764,18 @@ function personStats(ctx, cells) {
 
 /* ---------- rendering ---------- */
 const app = document.getElementById('app');
+function moveTabIndicator(instant) {
+  const ind = document.getElementById('tabInd'), tab = document.getElementById('tab-' + UI.tab); if (!ind || !tab) return;
+  if (instant || !UI.indPlaced) ind.classList.add('no-anim');
+  ind.style.width = tab.offsetWidth + 'px'; ind.style.transform = `translateX(${tab.offsetLeft}px)`;
+  if (instant || !UI.indPlaced) { ind.offsetWidth; ind.classList.remove('no-anim'); UI.indPlaced = true; }
+}
+window.addEventListener('resize', () => moveTabIndicator(true));
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => moveTabIndicator(true));
 function render() {
   applyPrefs();
   for (const t of ['schedule', 'team', 'rules', 'settings']) document.getElementById('tab-' + t).setAttribute('aria-selected', UI.tab === t);
+  moveTabIndicator();
   if (UI.tab === 'schedule') app.innerHTML = renderSchedule();
   else if (UI.tab === 'team') app.innerHTML = renderTeam();
   else if (UI.tab === 'rules') app.innerHTML = renderRules();
@@ -907,7 +924,7 @@ function renderRules() {
   h += `<div class="card"><h2>Week A / Week B</h2><p class="sub">For limits that alternate weekly, like someone who works Saturday one week and Wednesday the next.</p>
     <p style="margin:0 0 8px">The week of <b>${weekLabel(UI.week)}</b> is <b>Week ${ctx.par}</b>.</p><button class="btn small" data-act="parity-flip">Switch A and B</button></div>`;
   h += `</div>`;
-  h += `<div class="card"><h2>Shift times</h2><p class="sub">Lunch is subtracted automatically: none under 6 hours, 30 minutes for 6–7 hours, 1 hour over 7.</p><div class="cols">`;
+  h += `<div class="card"><h2>Shift times</h2><p class="sub">Lunch is subtracted automatically: none under 6 hours, 30 minutes for 6–7 hours, 1 hour over 7. Add your own shifts under each day, such as part-time shifts.</p><div class="cols">`;
   const ROWS = [['modOpen', 'Opening ' + esc(ANY())], ['open', 'Opening'], ['close', 'Closing'], ['modClose', 'Closing ' + esc(ANY())], ['mid', 'Mid (fills gaps)']];
   for (const [g, gl] of [['weekday', 'Mon–Fri'], ['sat', 'Saturday'], ['sun', 'Sunday']]) {
     h += `<div><h3>${gl}</h3><div class="shiftrows">`;
@@ -915,18 +932,18 @@ function renderRules() {
       const t = S.shifts[g][k];
       h += `<div class="shiftrow"><span class="sr-label">${kl}</span><input type="time" id="sh-${g}-${k}-0" value="${t[0]}" data-chg="shift" data-g="${g}" data-k="${k}" data-i="0" aria-label="${gl} ${kl} start"><input type="time" id="sh-${g}-${k}-1" value="${t[1]}" data-chg="shift" data-g="${g}" data-k="${k}" data-i="1" aria-label="${gl} ${kl} end"><span class="sr-paid">${fmtH(paidHours(t[0], t[1]))}h paid</span></div>`;
     }
-    h += `</div></div>`;
+    for (const x of S.extraShifts.filter(x => x.group === g)) {
+      const sel = (f, opts) => `<select id="x${f}-${x.id}" data-chg="xs" data-id="${x.id}" data-f="${f}" aria-label="${f === 'who' ? 'For' : 'Counts as'}">${opts.map(([v, l]) => `<option value="${v}" ${(x[f] || 'all') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+      h += `<div class="shiftrow added">
+        <div class="sr-label sr-sel">${sel('countsAs', [['open', 'Opener'], ['close', 'Closer'], ['mid', 'Mid']])}${sel('who', [['all', 'Everyone'], ['FT', 'Full-time'], ['PT', 'Part-time']])}</div>
+        <input type="time" id="xs-${x.id}" value="${x.start}" data-chg="xs" data-id="${x.id}" data-f="start" aria-label="Start"><input type="time" id="xe-${x.id}" value="${x.end}" data-chg="xs" data-id="${x.id}" data-f="end" aria-label="End">
+        <div class="sr-foot"><label class="check"><input type="checkbox" id="xa-${x.id}" data-chg="xs" data-id="${x.id}" data-f="auto" ${x.auto ? 'checked' : ''}> Shuffle can use it</label><span class="sr-paid">${fmtH(paidHours(x.start, x.end))}h paid</span><button class="btn small danger" data-act="xs-del" data-id="${x.id}">Remove</button></div>
+      </div>`;
+    }
+    h += `</div><button class="btn small" data-act="xs-add" data-g="${g}" style="margin-top:10px">Add a ${gl === 'Mon–Fri' ? 'weekday' : gl} shift</button></div>`;
   }
-  h += `</div></div>`;
-  h += `<div class="card"><h2>Extra shift times</h2><p class="sub">Add other shift times you use, like an 8a–5p opener or a 2p–10p closer. They show up as choices when you tap a shift. Turn on "Shuffle can use it" to let the shuffle assign it too.</p>`;
-  h += S.extraShifts.length ? S.extraShifts.map(x => `<div class="limit">
-      <div class="row"><div class="field"><label for="xg-${x.id}">Days</label><select id="xg-${x.id}" data-chg="xs" data-id="${x.id}" data-f="group">${Object.entries(GROUP_LABEL).map(([g, l]) => `<option value="${g}" ${x.group === g ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-      <div class="field"><label for="xc-${x.id}">Counts as</label><select id="xc-${x.id}" data-chg="xs" data-id="${x.id}" data-f="countsAs"><option value="open" ${x.countsAs === 'open' ? 'selected' : ''}>Opener</option><option value="close" ${x.countsAs === 'close' ? 'selected' : ''}>Closer</option><option value="mid" ${x.countsAs === 'mid' ? 'selected' : ''}>Mid</option></select></div></div>
-      <div class="row"><div class="field"><label for="xs-${x.id}">Start</label><input type="time" id="xs-${x.id}" value="${x.start}" data-chg="xs" data-id="${x.id}" data-f="start"></div>
-      <div class="field"><label for="xe-${x.id}">End</label><input type="time" id="xe-${x.id}" value="${x.end}" data-chg="xs" data-id="${x.id}" data-f="end"></div></div>
-      <div class="confirm" style="justify-content:space-between;margin-top:0"><label class="check"><input type="checkbox" id="xa-${x.id}" data-chg="xs" data-id="${x.id}" data-f="auto" ${x.auto ? 'checked' : ''}> Shuffle can use it</label><span class="small muted">${fmtH(paidHours(x.start, x.end))}h paid</span><button class="btn small danger" data-act="xs-del" data-id="${x.id}">Remove</button></div>
-    </div>`).join('') : `<p class="small muted" style="margin:0 0 10px">No extra shift times yet.</p>`;
-  h += `<button class="btn small" data-act="xs-add">Add a shift time</button></div>`;
+  h += `<p class="small muted" style="margin:14px 0 0">Added shifts show up as choices when you tap a shift on the schedule, for the people they're for. Turn on "Shuffle can use it" to let Shuffle assign them too.</p></div>`;
+
   return h;
 }
 
@@ -969,13 +986,13 @@ function renderSheet() {
     const ctx = buildCtx(UI.week), wk = S.weeks[UI.week]; normalizeWeek(ctx, wk);
     const i = ctx.P.findIndex(p => p.id === s.pid); const p = ctx.P[i]; const d = s.d;
     const cur = wk.cells[p.id][d]; const ds = dayStats(ctx, wk.cells);
-    const vals = p.isMod ? ['mopen', 'open', 'close', 'mid', 'off'] : ['open', 'close', 'mid', 'off']; for (const x of S.extraShifts) if (x.group === dayGroup(d)) vals.splice(vals.indexOf(x.countsAs) + 1, 0, 'x:' + x.id); if (isExtra(cur) && !vals.includes(cur)) vals.push(cur); if (p.custom[d]) vals.unshift('custom'); if (p.allowed[d][0] === 'pto' || cur === 'pto') vals.push('pto');
+    const vals = p.isMod ? ['mopen', 'open', 'close', 'mid', 'off'] : ['open', 'close', 'mid', 'off']; for (const x of S.extraShifts) if (x.group === dayGroup(d) && forWho(x, p.type)) vals.splice(vals.indexOf(x.countsAs) + 1, 0, 'x:' + x.id); if (isExtra(cur) && !vals.includes(cur)) vals.push(cur); if (p.custom[d]) vals.unshift('custom'); if (p.allowed[d][0] === 'pto' || cur === 'pto') vals.push('pto');
     const mo = p.isMod && (!ds[d].moId || ds[d].moId === p.id) ? p.id : ds[d].moId;
     let h = head(`${esc(p.name)} · ${DAYS_LONG[d]}`, `${shortDate(ctx.dates[d])}${p.reason[d] ? ' · ' + esc(p.reason[d]) : ''}`);
     h += `<div class="opts">${vals.map(v => {
       const k = kindOf(p, d, v), t = timesFor(p, d, v, mo);
       const bad = !p.allowed[d].includes(baseOf(p, d, v)) && v !== 'off';
-      const lbl = v === 'custom' ? 'Limited hours' : isExtra(v) ? LABEL[k] + ' (extra)' : (v === 'mopen' ? 'Opening ' + esc(ANY()) : LABEL[v]);
+      const lbl = v === 'custom' ? 'Limited hours' : isExtra(v) ? LABEL[k] + (EXTRA[v] && EXTRA[v].who && EXTRA[v].who !== 'all' ? ' (' + (EXTRA[v].who === 'PT' ? 'part-time' : 'full-time') + ')' : ' (extra)') : (v === 'mopen' ? 'Opening ' + esc(ANY()) : LABEL[v]);
       return `<button class="opt ${v === 'pto' ? 'pto' : isWork(v) ? k : 'off'}" data-act="set-cell" data-v="${v}" aria-pressed="${cur === v}"><span class="k">${lbl}</span><span class="t">${t ? fmtRange(t[0], t[1]) : v === 'pto' ? 'Time off' : 'Day off'}</span>${bad ? '<span class="why">Breaks a limit</span>' : ''}</button>`;
     }).join('')}</div>`;
     h += `<label class="check"><input type="checkbox" id="lockcell" data-chg="lock" ${wk.locks[p.id][d] ? 'checked' : ''}> Keep this shift when shuffling</label>`;
@@ -1155,7 +1172,7 @@ document.addEventListener('click', e => {
       break; }
     case 'reset-ask': UI.confirmReset = true; render(); break;
     case 'reset-cancel': UI.confirmReset = false; render(); break;
-    case 'xs-add': S.extraShifts.push({id: uid(), group: 'weekday', start: '08:00', end: '17:00', countsAs: 'open', auto: false}); syncExtra(); save(); render(); break;
+    case 'xs-add': S.extraShifts.push({id: uid(), group: el.dataset.g || 'weekday', start: '10:00', end: '15:00', countsAs: 'open', who: 'PT', auto: false}); syncExtra(); save(); render(); break;
     case 'xs-del': {
       const x = S.extraShifts.find(z => z.id === el.dataset.id); if (!x) break;
       const key = 'x:' + x.id;
