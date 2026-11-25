@@ -107,7 +107,8 @@ main{padding-block:16px 48px;display:flex;flex-direction:column;gap:16px}
 .info{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
 .chip b{color:var(--ink);font-weight:600}
-.chip input{width:72px;padding:2px 6px;border-radius:6px;font-size:13px;font-family:var(--font-mono)}
+.chip.has-input{border-radius:12px;padding:4px 4px 4px 12px}
+.chip input{width:72px;padding:4px 8px;border-radius:8px;font-size:13px;font-family:var(--font-mono);min-height:0}
 .chip.good{background:var(--good-soft);border-color:transparent;color:var(--good)}
 .chip.bad{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
 .chip.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
@@ -159,11 +160,18 @@ table.grid{border-collapse:separate;border-spacing:0;width:100%;min-width:460px}
 .issues li.note .dot{background:var(--warn)}
 
 table.tally{width:100%;border-collapse:collapse;font-size:13px}
-.tally th,.tally td{padding:6px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+.tally th,.tally td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+.tally td{white-space:nowrap}
+.tally td.txt{white-space:normal;overflow-wrap:anywhere}
+.tally th{line-height:1.25}
+.tally th.l{text-align:left;padding-left:8px}
+.tally td.txt:not(:first-child){padding-left:8px}
 .tally th:first-child,.tally td:first-child{text-align:left}
 .tally thead th{color:var(--muted);font-weight:600;font-size:12px}
 .tally td{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
-.tally td.txt{font-family:var(--font-body);text-align:left}
+.tally td.txt{font-family:var(--font-body);text-align:left;padding-left:0}
+.tally th:first-child{padding-left:0}
+.tally td:last-child,.tally th:last-child{padding-right:0}
 .tally .short{color:var(--bad);font-weight:700}
 .tally tr.total td{border-bottom:0;border-top:2px solid var(--line)}
 .scrollx{overflow-x:auto}
@@ -822,12 +830,13 @@ function renderSchedule() {
   const flagCell = new Set(), flagRow = new Set(), flagDay = new Set();
   for (const is of rules) for (const [a, b] of is.refs) { if (a === 'day') flagDay.add(b); else if (b === 'row') flagRow.add(a); else flagCell.add(a + ':' + b); }
   const ds = dayStats(ctx, wk.cells), ps = personStats(ctx, wk.cells);
+  const anyMid = ps.some(x => x.m);
   const teamHours = ctx.P.reduce((sum, p, i) => sum + (p.isAbom ? 0 : ps[i].h), 0);
   const budget = wk.budget != null ? wk.budget : (S.settings.budget || null);
   const overBy = budget ? Math.round((teamHours - budget) * 100) / 100 : null;
   if (overBy > 0) notes.push({sev: 'note', msg: `Team hours are ${fmtH(overBy)} over this week's budget of ${fmtH(budget)}.`, refs: []});
   h += infoChips(ctx);
-  h += `<div class="info">${rules.length ? `<span class="chip bad"><b style="color:inherit">${rules.length}</b> rule${rules.length === 1 ? '' : 's'} broken</span>` : `<span class="chip good">All rules met</span>`}${notes.length ? `<span class="chip warn">${notes.length} note${notes.length === 1 ? '' : 's'}</span>` : ''}<span class="chip ${overBy > 0 ? 'warn' : ''}">Team hours: <b${overBy > 0 ? ' style="color:inherit"' : ''}>${fmtH(teamHours)}</b>${budget ? ` of ${fmtH(budget)} · ${overBy > 0 ? fmtH(overBy) + ' over' : overBy < 0 ? fmtH(-overBy) + ' under' : 'on budget'}` : ''}</span><label class="chip" for="wk-budget">Budget <input type="number" id="wk-budget" min="0" max="5000" step="0.5" inputmode="decimal" placeholder="none" value="${budget == null ? '' : budget}" data-chg="budget-week" aria-label="Hours budget for this week"></label>${Object.values(wk.locks).some(r => r.some(Boolean)) ? `<button class="btn small" data-act="unlock-all">Unlock all</button>` : ''}</div>`;
+  h += `<div class="info">${rules.length ? `<span class="chip bad"><b style="color:inherit">${rules.length}</b> rule${rules.length === 1 ? '' : 's'} broken</span>` : `<span class="chip good">All rules met</span>`}${notes.length ? `<span class="chip warn">${notes.length} note${notes.length === 1 ? '' : 's'}</span>` : ''}<span class="chip ${overBy > 0 ? 'warn' : ''}">Team hours: <b${overBy > 0 ? ' style="color:inherit"' : ''}>${fmtH(teamHours)}</b>${budget ? ` of ${fmtH(budget)} · ${overBy > 0 ? fmtH(overBy) + ' over' : overBy < 0 ? fmtH(-overBy) + ' under' : 'on budget'}` : ''}</span><label class="chip has-input" for="wk-budget">Budget <input type="number" id="wk-budget" min="0" max="5000" step="0.5" inputmode="decimal" placeholder="none" value="${budget == null ? '' : budget}" data-chg="budget-week" aria-label="Hours budget for this week"></label>${Object.values(wk.locks).some(r => r.some(Boolean)) ? `<button class="btn small" data-act="unlock-all">Unlock all</button>` : ''}</div>`;
   h += `<div class="gridwrap"><table class="grid"><thead><tr><th class="namecol">Team</th>`;
   DAYS.forEach((dn, d) => { h += `<th class="${flagDay.has(d) ? 'flag' : ''}">${dn}<small>${shortDate(ctx.dates[d]).split(' ')[1]}</small></th>`; });
   h += `</tr></thead><tbody>`;
@@ -855,11 +864,11 @@ function renderSchedule() {
     h += `<div class="card"><h2>Check before you finalize</h2><p class="sub">Red items break a rule. Amber items are worth a look.</p><ul class="issues">${[...rules, ...notes].map(x => `<li class="${x.sev}"><span class="dot"></span><span>${esc(x.msg)}</span></li>`).join('')}</ul></div>`;
   }
   h += `<div class="cols">
-    <div class="card"><h2>Each person</h2><p class="sub">Opens, closes and days off this week.</p><div class="scrollx"><table class="tally"><thead><tr><th>Name</th><th>Open</th><th>Close</th><th>Mid</th><th>Off</th><th>Hours</th></tr></thead><tbody>
-    ${ctx.P.map((p, i) => `<tr><td class="txt">${esc(p.name)}${p.isAbom ? ` <span class="tag">${esc(SHORT(RN(p.role)))}</span>` : ''}</td><td>${ps[i].o}</td><td>${ps[i].c}</td><td>${ps[i].m || ''}</td><td>${ps[i].off}</td><td class="${ps[i].h > p.maxHours ? 'short' : ''}"${p.isAbom ? ' style="opacity:.55"' : ''}>${fmtH(ps[i].h)}</td></tr>`).join('')}
-    <tr class="total"><td class="txt"><b>Team total</b>${ctx.P.some(p => p.isAbom) ? `<div class="small muted">Not counting ${esc(RN('ABOM'))} or ${esc(RN('BOM'))}</div>` : ''}</td><td colspan="4"></td><td><b>${fmtH(teamHours)}</b></td></tr>
+    <div class="card"><h2>Each person</h2><p class="sub">Opens, closes and days off this week.</p><div class="scrollx"><table class="tally"><thead><tr><th>Name</th><th>Open</th><th>Close</th>${anyMid ? '<th>Mid</th>' : ''}<th>Off</th><th>Hours</th></tr></thead><tbody>
+    ${ctx.P.map((p, i) => `<tr><td class="txt">${esc(p.name)}${p.isAbom ? ` <span class="tag">${esc(SHORT(RN(p.role)))}</span>` : ''}</td><td>${ps[i].o}</td><td>${ps[i].c}</td>${anyMid ? `<td>${ps[i].m || ''}</td>` : ''}<td>${ps[i].off}</td><td class="${ps[i].h > p.maxHours ? 'short' : ''}"${p.isAbom ? ' style="opacity:.55"' : ''}>${fmtH(ps[i].h)}</td></tr>`).join('')}
+    <tr class="total"><td class="txt"><b>Team total</b>${ctx.P.some(p => p.isAbom) ? `<div class="small muted">Not counting ${esc(RN('ABOM'))} or ${esc(RN('BOM'))}</div>` : ''}</td><td colspan="${anyMid ? 4 : 3}"></td><td><b>${fmtH(teamHours)}</b></td></tr>
     </tbody></table></div></div>
-    <div class="card"><h2>Each day</h2><p class="sub">Coverage and who is ${esc(ANY())}.</p><div class="scrollx"><table class="tally"><thead><tr><th>Day</th><th>Open</th><th>Close</th><th>Opening ${esc(ANY())}</th><th>Closing ${esc(ANY())}</th></tr></thead><tbody>
+    <div class="card"><h2>Each day</h2><p class="sub">Coverage and who is ${esc(ANY())}.</p><div class="scrollx"><table class="tally"><thead><tr><th>Day</th><th>Open</th><th>Close</th><th class="l">Opening ${esc(ANY())}</th><th class="l">Closing ${esc(ANY())}</th></tr></thead><tbody>
     ${ds.map((x, d) => `<tr><td class="txt">${DAYS[d]}</td><td class="${x.o < st.minOpen ? 'short' : ''}">${x.o}</td><td class="${x.c < st.minClose ? 'short' : ''}">${x.c}</td><td class="txt ${x.modOpen ? '' : 'short'}">${x.modOpen ? esc(x.modOpen) : 'None'}</td><td class="txt ${x.modClose.length ? '' : 'short'}">${x.modClose.length ? x.modClose.map(esc).join(', ') : 'None'}</td></tr>`).join('')}
     </tbody></table></div></div>
   </div>`;
