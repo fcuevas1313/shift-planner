@@ -87,6 +87,9 @@ header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background
 .tab-ind.no-anim{transition:none}
 .tab{flex:1 1 0;min-width:0;position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px 7px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap;transition:color .2s}
 .tab svg{width:24px;height:24px}
+.bottom-nav.icons-only .tab span{display:none}
+.bottom-nav.icons-only .tab{padding:12px 4px}
+.bottom-nav.icons-only .tab svg{width:26px;height:26px}
 .tab[aria-selected="true"]{color:var(--accent-text)}
 main{padding-block:16px calc(110px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:16px}
 
@@ -966,6 +969,7 @@ function applyPrefs() {
   document.body.style.zoom = z !== 1 ? String(z) : '';
   // The tab bar grows less than the content (at most 1.15x) so all four tabs always fit across a phone.
   for (const el of document.querySelectorAll('header.top, .bottom-nav')) el.style.zoom = z > 1.15 ? String(1.15 / z) : '';
+  const nav = document.querySelector('.bottom-nav'); if (nav) nav.classList.toggle('icons-only', pr.navLabels === false);
   if (pr.theme === 'light' || pr.theme === 'dark') document.documentElement.setAttribute('data-theme', pr.theme);
   else if (UI.themeSet) document.documentElement.removeAttribute('data-theme');
   UI.themeSet = pr.theme === 'light' || pr.theme === 'dark';
@@ -974,6 +978,7 @@ function renderSettings() {
   const pr = S.prefs || {}, text = pr.text || '1', theme = pr.theme || 'system';
   let h = `<div class="card"><h2>Display</h2><p class="sub">These change how the app looks on this screen. Your team and schedules aren't affected.</p>
     <div class="field"><span class="flabel">Text size</span><div class="seg">${TEXT_SIZES.map(([v, l]) => `<button data-act="pref-text" data-v="${v}" aria-pressed="${text === v}">${l}</button>`).join('')}</div></div>
+    <div class="field"><span class="flabel">Navigation bar</span><div class="seg">${[['on', 'Icons and labels'], ['off', 'Icons only']].map(([v, l]) => `<button data-act="pref-nav" data-v="${v}" aria-pressed="${(pr.navLabels === false ? 'off' : 'on') === v}">${l}</button>`).join('')}</div></div>
     <div class="field" style="margin-bottom:0"><span class="flabel">Appearance</span><div class="seg">${[['system', 'Match my phone'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-act="pref-theme" data-v="${v}" aria-pressed="${theme === v}">${l}</button>`).join('')}</div></div></div>`;
   const where = Cloud.ready
     ? 'Your team, rules and schedules are saved to a private space in your Claude account, so they stay safe if this device\'s data is cleared, and they appear on any device where you open the app signed in. Only you can see them.'
@@ -1156,6 +1161,7 @@ document.addEventListener('click', e => {
     case 'p-del-cancel': UI.confirmDel = false; renderSheet(); break;
     case 'p-del': if (P) { S.people = S.people.filter(x => x.id !== P.id); S.rotation = S.rotation.filter(id => id !== P.id); for (const w of Object.values(S.weeks)) { delete w.cells[P.id]; delete w.locks[P.id]; } UI.confirmDel = false; save(); closeSheet(); toast(P.name + ' removed'); } break;
     case 'pref-text': S.prefs = Object.assign({}, S.prefs, {text: el.dataset.v}); save(); render(); break;
+    case 'pref-nav': S.prefs = Object.assign({}, S.prefs, {navLabels: el.dataset.v !== 'off'}); save(); render(); break;
     case 'pref-theme': S.prefs = Object.assign({}, S.prefs, {theme: el.dataset.v}); save(); render(); break;
     case 'mod-flip': S.settings.modFlip = !S.settings.modFlip; save(); render(); break;
     case 'parity-flip': S.settings.parityFlip = !S.settings.parityFlip; save(); render(); break;
