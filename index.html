@@ -295,9 +295,12 @@ textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:ver
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, e => e.preventDefault(), {passive: false});
 document.addEventListener('touchmove', e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, {passive: false});
 const KEY = 'shiftPlanner.v1';
-const APP_VERSION = '2026.11.26-0002';
+const APP_VERSION = '2026.11.26-0006';
 /* Newest first. tools/stamp_version.py fills in v: 'NEXT' with the release version when publishing. */
 const CHANGELOG = [
+  {v: '2026.11.26-0006', items: [
+    'The navigation bar highlight now has a much subtler stretch as it slides.'
+  ]},
   {v: '2026.11.26-0002', items: [
     'The green highlight in the navigation bar now stretches as it slides and settles with a little bounce.',
     'This What\'s new window: it appears once after each update. Reopen it anytime from Settings.'
@@ -802,16 +805,18 @@ function moveTabIndicator(instant) {
   const dir = Math.sign(to.x - from.x) || 1, dist = Math.abs(to.x - from.x);
   const fromR = from.x + from.w, toR = to.x + to.w;
   const lerp = (a, b, t) => a + (b - a) * t;
-  const lead = 0.8, lag = 0.25;                         // how far each edge has travelled at peak stretch
-  const sx = dir > 0 ? lerp(from.x, to.x, lag) : lerp(from.x, to.x, lead);
-  const sr = dir > 0 ? lerp(fromR, toR, lead) : lerp(fromR, toR, lag);
+  const STRETCH = 0.1;                                  // 1 = full squash and stretch; 0.1 = a light touch
+  const lead = 0.8, lag = 0.25, mid = 0.5;              // how far each edge has travelled at peak stretch
+  const rx = lerp(from.x, to.x, mid), rr = lerp(fromR, toR, mid);   // where a rigid pill would be
+  const sx = rx + STRETCH * ((dir > 0 ? lerp(from.x, to.x, lag) : lerp(from.x, to.x, lead)) - rx);
+  const sr = rr + STRETCH * ((dir > 0 ? lerp(fromR, toR, lead) : lerp(fromR, toR, lag)) - rr);
   const over = Math.min(10, 4 + dist * 0.04);             // overshoot in px, a little more for longer trips
   const f = (x, w, sy) => ({transform: `translateX(${x}px) scaleY(${sy})`, width: w + 'px'});
   if (UI.indAnim) UI.indAnim.cancel();
   UI.indAnim = ind.animate([
     Object.assign(f(from.x, from.w, 1), {offset: 0, easing: 'cubic-bezier(.4,0,.6,1)'}),
-    Object.assign(f(sx, sr - sx, 0.86), {offset: 0.42, easing: 'cubic-bezier(.2,.7,.3,1)'}),
-    Object.assign(f(to.x + dir * over, to.w * 0.96, 1.04), {offset: 0.72, easing: 'ease-in-out'}),
+    Object.assign(f(sx, sr - sx, 1 - 0.14 * STRETCH), {offset: 0.42, easing: 'cubic-bezier(.2,.7,.3,1)'}),
+    Object.assign(f(to.x + dir * over, to.w * (1 - 0.04 * STRETCH), 1 + 0.04 * STRETCH), {offset: 0.72, easing: 'ease-in-out'}),
     Object.assign(f(to.x - dir * over * 0.3, to.w, 0.99), {offset: 0.88, easing: 'ease-out'}),
     Object.assign(f(to.x, to.w, 1), {offset: 1})
   ], {duration: 560});
