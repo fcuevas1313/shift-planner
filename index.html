@@ -83,8 +83,7 @@ header.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background
 .brand svg{color:var(--accent-text)}
 .bottom-nav{position:fixed;left:0;right:0;bottom:0;z-index:15;pointer-events:none;padding:0 max(16px,env(safe-area-inset-right,0px)) calc(12px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
 .bn-inner{pointer-events:auto;position:relative;display:flex;gap:2px;max-width:480px;margin:0 auto;padding:6px;border-radius:999px;background:var(--nav-bg);border:1px solid var(--line);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 10px 30px rgba(0,0,0,.28)}
-.tab-ind{position:absolute;left:0;top:6px;bottom:6px;width:0;border-radius:999px;background:var(--accent-soft);pointer-events:none;transition:transform .32s cubic-bezier(.3,.8,.3,1),width .32s cubic-bezier(.3,.8,.3,1)}
-.tab-ind.no-anim{transition:none}
+.tab-ind{position:absolute;left:0;top:6px;bottom:6px;width:0;border-radius:999px;background:var(--accent-soft);pointer-events:none;transform-origin:center;will-change:transform,width}
 .tab{flex:1 1 0;min-width:0;position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px 7px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap;transition:color .2s}
 .tab svg{width:24px;height:24px}
 .bottom-nav.icons-only .tab span{display:none}
@@ -296,7 +295,20 @@ textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:ver
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, e => e.preventDefault(), {passive: false});
 document.addEventListener('touchmove', e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, {passive: false});
 const KEY = 'shiftPlanner.v1';
-const APP_VERSION = '2026.11.25-2243';
+const APP_VERSION = '2026.11.26-0002';
+/* Newest first. tools/stamp_version.py fills in v: 'NEXT' with the release version when publishing. */
+const CHANGELOG = [
+  {v: '2026.11.26-0002', items: [
+    'The green highlight in the navigation bar now stretches as it slides and settles with a little bounce.',
+    'This What\'s new window: it appears once after each update. Reopen it anytime from Settings.'
+  ]},
+  {v: '2026.11.25-2243', items: [
+    'New floating navigation bar at the bottom of the screen. Choose icons and labels, or icons only, in Settings → Display.',
+    'Tables on the Schedule tab now fit on a phone, and the budget box was tidied up.',
+    'The app version now shows at the bottom of Settings.'
+  ]}
+];
+const SEEN_KEY = 'shiftPlanner.seenVersion';
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const DAYS_LONG = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -780,9 +792,29 @@ function personStats(ctx, cells) {
 const app = document.getElementById('app');
 function moveTabIndicator(instant) {
   const ind = document.getElementById('tabInd'), tab = document.getElementById('tab-' + UI.tab); if (!ind || !tab) return;
-  if (instant || !UI.indPlaced) ind.classList.add('no-anim');
-  ind.style.width = tab.offsetWidth + 'px'; ind.style.transform = `translateX(${tab.offsetLeft}px)`;
-  if (instant || !UI.indPlaced) { ind.offsetWidth; ind.classList.remove('no-anim'); UI.indPlaced = true; }
+  const to = {x: tab.offsetLeft, w: tab.offsetWidth};
+  const from = UI.indPos, moved = from && UI.indTab !== UI.tab;
+  ind.style.width = to.w + 'px'; ind.style.transform = `translateX(${to.x}px)`;
+  UI.indPos = to; UI.indTab = UI.tab;
+  if (instant || !moved || !ind.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  // Squash and stretch: the leading edge leaves first and the trailing edge lags, so the pill stretches
+  // and thins mid-flight; then it overshoots the tab, springs back a little and settles.
+  const dir = Math.sign(to.x - from.x) || 1, dist = Math.abs(to.x - from.x);
+  const fromR = from.x + from.w, toR = to.x + to.w;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const lead = 0.8, lag = 0.25;                         // how far each edge has travelled at peak stretch
+  const sx = dir > 0 ? lerp(from.x, to.x, lag) : lerp(from.x, to.x, lead);
+  const sr = dir > 0 ? lerp(fromR, toR, lead) : lerp(fromR, toR, lag);
+  const over = Math.min(10, 4 + dist * 0.04);             // overshoot in px, a little more for longer trips
+  const f = (x, w, sy) => ({transform: `translateX(${x}px) scaleY(${sy})`, width: w + 'px'});
+  if (UI.indAnim) UI.indAnim.cancel();
+  UI.indAnim = ind.animate([
+    Object.assign(f(from.x, from.w, 1), {offset: 0, easing: 'cubic-bezier(.4,0,.6,1)'}),
+    Object.assign(f(sx, sr - sx, 0.86), {offset: 0.42, easing: 'cubic-bezier(.2,.7,.3,1)'}),
+    Object.assign(f(to.x + dir * over, to.w * 0.96, 1.04), {offset: 0.72, easing: 'ease-in-out'}),
+    Object.assign(f(to.x - dir * over * 0.3, to.w, 0.99), {offset: 0.88, easing: 'ease-out'}),
+    Object.assign(f(to.x, to.w, 1), {offset: 1})
+  ], {duration: 560});
 }
 window.addEventListener('resize', () => moveTabIndicator(true));
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => moveTabIndicator(true));
@@ -976,7 +1008,7 @@ function applyPrefs() {
   UI.themeSet = pr.theme === 'light' || pr.theme === 'dark';
 }
 function renderSettings() {
-  const versionLine = `<p class="small muted" style="text-align:center;margin:4px 0 0">Shift Planner · version ${APP_VERSION}</p>`;
+  const versionLine = `<div style="text-align:center"><button class="btn small" data-act="whats-new">What's new</button><p class="small muted" style="margin:8px 0 0">Shift Planner · version ${APP_VERSION}</p></div>`;
   const pr = S.prefs || {}, text = pr.text || '1', theme = pr.theme || 'system';
   let h = `<div class="card"><h2>Display</h2><p class="sub">These change how the app looks on this screen. Your team and schedules aren't affected.</p>
     <div class="field"><span class="flabel">Text size</span><div class="seg">${TEXT_SIZES.map(([v, l]) => `<button data-act="pref-text" data-v="${v}" aria-pressed="${text === v}">${l}</button>`).join('')}</div></div>
@@ -1048,6 +1080,11 @@ function renderSheet() {
   if (s.type === 'text') {
     sheetEl.innerHTML = head(esc(s.title), 'Copying was blocked here. Select the text below and copy it.') + `<textarea id="copytext" readonly>${esc(s.text)}</textarea>`;
     const ta = document.getElementById('copytext'); ta.focus(); ta.select(); return;
+  }
+  if (s.type === 'whatsnew') {
+    const list = s.all ? CHANGELOG : CHANGELOG.filter(e => e.v > s.since);
+    sheetEl.innerHTML = head("What's new", s.all ? 'Recent updates to Shift Planner.' : 'Here\'s what changed since you last opened the app.') + list.map(e => `<div style="margin-bottom:14px">${list.length > 1 || s.all ? `<h3 style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px">Version ${esc(e.v)}</h3>` : ''}<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px">${e.items.map(t => `<li>${esc(t)}</li>`).join('')}</ul></div>`).join('') + `<button class="btn primary" data-act="close-sheet" style="width:100%;justify-content:center">Got it</button>`;
+    return;
   }
   if (s.type === 'restore') {
     sheetEl.innerHTML = head('Restore from backup', 'Choose a backup file, or paste backup text. This replaces everything currently in the app.') + `<div class="field"><label for="restorefile">Backup file</label><input type="file" id="restorefile" accept=".json,application/json,text/plain" data-chg="restore-file"></div><div class="field"><label for="restoretext">Or paste backup text</label><textarea id="restoretext" placeholder="Paste backup here"></textarea></div><div class="confirm"><button class="btn primary" data-act="restore">Restore</button><span class="small" id="restoreMsg" style="color:var(--bad)"></span></div>`;
@@ -1164,6 +1201,7 @@ document.addEventListener('click', e => {
     case 'p-del-cancel': UI.confirmDel = false; renderSheet(); break;
     case 'p-del': if (P) { S.people = S.people.filter(x => x.id !== P.id); S.rotation = S.rotation.filter(id => id !== P.id); for (const w of Object.values(S.weeks)) { delete w.cells[P.id]; delete w.locks[P.id]; } UI.confirmDel = false; save(); closeSheet(); toast(P.name + ' removed'); } break;
     case 'pref-text': S.prefs = Object.assign({}, S.prefs, {text: el.dataset.v}); save(); render(); break;
+    case 'whats-new': openSheet({type: 'whatsnew', all: true}); break;
     case 'pref-nav': S.prefs = Object.assign({}, S.prefs, {navLabels: el.dataset.v !== 'off'}); save(); render(); break;
     case 'pref-theme': S.prefs = Object.assign({}, S.prefs, {theme: el.dataset.v}); save(); render(); break;
     case 'mod-flip': S.settings.modFlip = !S.settings.modFlip; save(); render(); break;
@@ -1239,6 +1277,13 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && UI.sheet) 
 
 save(true); render();
 if (firstRun) doShuffle(true);
+/* After an update, show what changed since the version this device last saw (not on a brand-new install). */
+(() => {
+  let seen = null; try { seen = localStorage.getItem(SEEN_KEY); } catch (e) {}
+  if (!seen && !firstRun) seen = '2026.11.25-0000';   // devices that used the app before this window existed
+  try { localStorage.setItem(SEEN_KEY, APP_VERSION); } catch (e) {}
+  if (seen && APP_VERSION !== 'dev' && APP_VERSION > seen && CHANGELOG.some(e => e.v > seen)) setTimeout(() => openSheet({type: 'whatsnew', since: seen}), 600);
+})();
 cloudInit();
 })();
 </script>
