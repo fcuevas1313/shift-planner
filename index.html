@@ -234,7 +234,7 @@ textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:ver
 .shifttbl td,.shifttbl th{padding:4px;text-align:left;border-bottom:1px solid var(--line)}
 .shifttbl th{font-weight:600;color:var(--muted);font-size:12px}
 .shifttbl input{padding:6px;font-family:var(--font-mono);font-size:13px}
-.groups{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(140px,100%),1fr));gap:10px}
 .group{border:1px solid var(--line);border-radius:8px;padding:10px}
 .group.offnow{background:var(--surface-2)}
 .group b{display:block;font-size:13px}
@@ -295,9 +295,13 @@ textarea{font-family:var(--font-mono);font-size:12px;min-height:180px;resize:ver
 for (const t of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(t, e => e.preventDefault(), {passive: false});
 document.addEventListener('touchmove', e => { if (e.touches && e.touches.length > 1) e.preventDefault(); }, {passive: false});
 const KEY = 'shiftPlanner.v1';
-const APP_VERSION = '2026.11.26-0006';
+const APP_VERSION = '2026.11.26-0025';
 /* Newest first. tools/stamp_version.py fills in v: 'NEXT' with the release version when publishing. */
 const CHANGELOG = [
+  {v: '2026.11.26-0025', items: [
+    'Manager weekends can now repeat every 2 to 6 weeks: set the number of weekend groups in Rules. Two groups works exactly as before.',
+    'The associate weekend rotation now says how often each person gets a weekend off.'
+  ]},
   {v: '2026.11.26-0006', items: [
     'The navigation bar highlight now has a much subtler stretch as it slides.'
   ]},
@@ -500,7 +504,12 @@ const UI = {tab: 'schedule', week: (S.ui && S.ui.week) || nextSunday(), sheet: n
 /* ---------- rotation helpers ---------- */
 const weekIndex = ws => Math.round((parse(ws) - parse(S.settings.refDate)) / (7 * 864e5));
 const parityOf = wi => ((mod(wi, 2) === 0) !== !!S.settings.parityFlip) ? 'A' : 'B';
-const modOffGroup = wi => ((mod(wi, 2) === 0) !== !!S.settings.modFlip) ? 'B' : 'A';
+const GROUP_LETTERS = 'ABCDEF';
+const groupCount = () => Math.min(6, Math.max(2, (S.settings.modGroups | 0) || 2));
+const groupLetters = () => GROUP_LETTERS.slice(0, groupCount()).split('');
+const inGroup = g => groupLetters().includes(g);
+/* The group whose managers have the weekend off in week wi. With 2 groups this is the original A/B alternation. */
+const modOffGroup = wi => groupLetters()[mod(wi + 1 + (S.settings.modFlip ? 1 : 0) + (S.settings.modShift | 0), groupCount())];
 function rotationList() { const ids = new Set(S.people.map(p => p.id)); return S.rotation.filter(id => ids.has(id)); }
 function rotationOff(wi) {
   const list = rotationList(); const n = list.length; if (!n) return [];
@@ -515,7 +524,7 @@ function trailing(row) { let n = 0; for (let d = 6; d >= 0 && isWork(row[d]); d-
 function maxRun(row, carry) { let run = carry, m = 0; for (let d = 0; d < 7; d++) { if (isWork(row[d])) { run++; if (run > m) m = run; } else run = 0; } return m; }
 
 function buildCtx(ws) {
-  const wi = weekIndex(ws), par = parityOf(wi), offSet = new Set(rotationOff(wi)), prevOffSet = new Set(rotationOff(wi - 1)), modOff = modOffGroup(wi);
+  const wi = weekIndex(ws), par = parityOf(wi), offSet = new Set(rotationOff(wi)), prevOffSet = new Set(rotationOff(wi - 1)), modOff = modOffGroup(wi), modOffPrev = modOffGroup(wi - 1);
   const prev = S.weeks[addDays(ws, -7)], prev2 = S.weeks[addDays(ws, -14)];
   const dates = DAYS.map((_, d) => addDays(ws, d));
   const P = S.people.map(p => {
@@ -533,9 +542,12 @@ function buildCtx(ws) {
       const wkend = d === 0 || d === 6;
       if (d === 6 && p.role === 'Associate' && offSet.has(p.id)) { a = ['off']; r = 'starting their weekend off'; }
       if (d === 0 && p.role === 'Associate' && prevOffSet.has(p.id)) { a = ['off']; r = 'finishing their weekend off'; }
-      if (MGR(p.role) && (p.modGroup === 'A' || p.modGroup === 'B')) {
-        const offWeek = p.modGroup === modOff, midOff = p.modMidOff == null ? 4 : +p.modMidOff;
-        if (offWeek ? (d === 5 || d === 6) : (d === 0 || d === midOff)) { a = ['off']; r = offWeek ? 'on their weekend off (group ' + p.modGroup + ')' : d === 0 ? 'finishing their weekend off' : 'on their set weekday off'; }
+      if (MGR(p.role) && inGroup(p.modGroup)) {
+        // Weekend-off week: off Fri and Sat. The week after: off Sunday (end of that weekend) and their set weekday.
+        // With more than 2 groups, the other weeks are full working weekends and Shuffle picks the days off.
+        const offWeek = p.modGroup === modOff, afterOff = p.modGroup === modOffPrev, midOff = p.modMidOff == null ? 4 : +p.modMidOff;
+        if (offWeek && (d === 5 || d === 6)) { a = ['off']; r = 'on their weekend off (group ' + p.modGroup + ')'; }
+        else if (afterOff && (d === 0 || d === midOff)) { a = ['off']; r = d === 0 ? 'finishing their weekend off' : 'on their set weekday off'; }
       }
       if (p.timeOff.includes(dates[d])) { a = ['pto']; r = 'on time off'; pto++; }
       allowed.push(a); reason.push(r); custom.push(c);
@@ -555,7 +567,7 @@ function buildCtx(ws) {
       prevSat: pc ? pc[6] : null,
       prevSun: pc ? pc[0] : null,
       prev2Sat: pc2 ? pc2[6] : null,
-      inCycle: MGR(p.role) && (p.modGroup === 'A' || p.modGroup === 'B'),
+      inCycle: MGR(p.role) && inGroup(p.modGroup),
       group: p.modGroup,
       sinceClose: (() => { for (let k = 1; k <= 16; k++) { const w = S.weeks[addDays(ws, -7 * k)]; const v = w && w.cells[p.id] && w.cells[p.id][6]; if (v === 'close') return k; } return 99; })(),
       closable,
@@ -565,7 +577,7 @@ function buildCtx(ws) {
   // Are there enough closing slots (max closers x 7) for every full-timer to close twice?
   const maxC = S.settings.maxClose == null ? 3 : S.settings.maxClose;
   const closeRoom = !maxC || 7 * maxC >= 2 * P.filter(p => p.type === 'FT' && p.target >= 4 && p.closable >= 2).length;
-  return {ws, wi, par, modOff, offSet, dates, P, hasPrev: !!prev, closeRoom};
+  return {ws, wi, par, modOff, modOffPrev, offSet, dates, P, hasPrev: !!prev, closeRoom};
 }
 const kindOf = (p, d, v) => v === 'mopen' ? 'open' : v === 'custom' ? (p.custom[d] ? p.custom[d].countsAs : 'mid') : isExtra(v) ? (EXTRA[v] ? EXTRA[v].countsAs : 'mid') : v;
 const baseOf = (p, d, v) => isExtra(v) ? kindOf(p, d, v) : v;
@@ -942,8 +954,6 @@ function renderTeam() {
 function renderRules() {
   const ctx = buildCtx(UI.week), st = S.settings;
   const list = rotationList(), off = new Set(rotationOff(ctx.wi));
-  const A = S.people.filter(p => MGR(p.role) && p.modGroup === 'A').map(p => esc(p.name)).join(', ') || 'Nobody yet';
-  const B = S.people.filter(p => MGR(p.role) && p.modGroup === 'B').map(p => esc(p.name)).join(', ') || 'Nobody yet';
   let h = banners() + weekBar(false);
   h += `<p class="small muted" style="margin:0">Rotation settings below are shown for the week above. Use the arrows to check other weeks.</p>`;
   h += `<div class="cols">`;
@@ -964,14 +974,22 @@ function renderRules() {
     <div class="field" style="max-width:260px"><label for="maxOpen">Most openers on one day</label><input type="number" id="maxOpen" min="0" max="20" value="${st.maxOpen == null ? 6 : st.maxOpen}" data-chg="setting" data-k="maxOpen"></div>
     <p class="small muted" style="margin:0 0 8px">Shuffle spreads extra openers evenly across the week and tries to stay at or under this number. Set it to 0 to turn the limit off.</p>
     <p class="small muted" style="margin:0">If a day falls short, Shuffle adds a mid shift to fill the gap.</p></div>`;
-  const gtxt = g => ctx.modOff === g ? 'Works Sun–Thu, off Fri and Sat (and next Sunday)' : 'Off Sunday and their set weekday, works Fri and Sat';
-  h += `<div class="card"><h2>${esc(ANY())} weekends</h2><p class="sub">The two groups alternate a two-week cycle. ${esc(ANYS())} aren't held to the 5-days-in-a-row limit.</p>
-    <div class="groups"><div class="group ${ctx.modOff === 'A' ? 'offnow' : ''}"><b>Group A · ${ctx.modOff === 'A' ? 'weekend off' : 'working weekend'}</b><span>${A}</span><span style="display:block;margin-top:4px;font-size:12px">${gtxt('A')}</span></div><div class="group ${ctx.modOff === 'B' ? 'offnow' : ''}"><b>Group B · ${ctx.modOff === 'B' ? 'weekend off' : 'working weekend'}</b><span>${B}</span><span style="display:block;margin-top:4px;font-size:12px">${gtxt('B')}</span></div></div>
+  const nG = groupCount(), letters = groupLetters();
+  const members = g => S.people.filter(p => MGR(p.role) && p.modGroup === g).map(p => esc(p.name)).join(', ') || 'Nobody yet';
+  const gstate = g => g === ctx.modOff ? ['weekend off', 'Off Fri and Sat (and next Sunday)']
+    : g === ctx.modOffPrev ? ['back from weekend off', 'Off Sunday and their set weekday']
+    : ['working weekend', nG > 2 ? 'Works Sat and Sun; Shuffle picks 2 days off' : 'Works Fri and Sat'];
+  const stray = S.people.filter(p => MGR(p.role) && p.modGroup !== 'none' && !inGroup(p.modGroup));
+  h += `<div class="card"><h2>${esc(ANY())} weekends</h2><p class="sub">The groups take turns having the weekend off, so each ${esc(ANY())} gets a weekend off every ${nG} weeks. ${esc(ANYS())} aren't held to the 5-days-in-a-row limit.</p>
+    <div class="field" style="max-width:260px"><label for="modGroups">Number of weekend groups</label><select id="modGroups" data-chg="mod-groups">${[2, 3, 4, 5, 6].map(n => `<option value="${n}" ${n === nG ? 'selected' : ''}>${n} groups · weekend off every ${n} weeks</option>`).join('')}</select></div>
+    <div class="groups">${letters.map(g => { const [st, tx] = gstate(g); return `<div class="group ${g === ctx.modOff ? 'offnow' : ''}"><b>Group ${g} · ${st}</b><span>${members(g)}</span><span style="display:block;margin-top:4px;font-size:12px">${tx}</span></div>`; }).join('')}</div>
+    ${stray.length ? `<p class="small" style="margin:8px 0 0;color:var(--warn)">Not in a current group: ${stray.map(p => esc(p.name) + ' (group ' + esc(p.modGroup) + ')').join(', ')}. Choose a group in their profile.</p>` : ''}
     ${S.people.some(p => MGR(p.role) && p.modGroup === 'none') ? `<p class="small muted" style="margin:8px 0 0">Own schedule (not in a group): ${S.people.filter(p => MGR(p.role) && p.modGroup === 'none').map(p => esc(p.name)).join(', ')}</p>` : ''}
-    <div class="confirm"><button class="btn small" data-act="mod-flip">Switch which group is off</button></div></div>`;
+    <div class="confirm">${nG === 2 ? `<button class="btn small" data-act="mod-shift" data-v="1">Switch which group is off</button>` : `<button class="btn small" data-act="mod-shift" data-v="-1">Previous group's turn</button><button class="btn small" data-act="mod-shift" data-v="1">Next group's turn</button>`}</div></div>`;
   h += `<div class="card"><h2>Associate weekend rotation</h2><p class="sub">Each week the next person on the list gets Saturday and the following Sunday off. To handle swaps, press and hold a name, then drag it up or down. The arrows work too.</p>
     <div class="field" style="max-width:200px"><label for="kper">People off each weekend</label><input type="number" id="kper" min="0" max="10" value="${st.assocOffPerWeekend}" data-chg="setting" data-k="assocOffPerWeekend"></div>
     <ul class="rot">${list.map((id, i) => { const p = personById(id); return `<li data-id="${id}" class="${off.has(id) ? 'now' : ''}"><svg class="grip" width="12" height="16" viewBox="0 0 12 16" aria-hidden="true"><g fill="currentColor"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="9" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="9" cy="13" r="1.5"/></g></svg><span class="n">${i + 1}</span><span class="who">${esc(p.name)}</span>${off.has(id) ? '<span class="now-tag">OFF THIS WEEKEND</span>' : ''}<button class="iconbtn" data-act="rot-up" data-id="${id}" aria-label="Move ${esc(p.name)} up"${i === 0 ? ' disabled' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M18 15l-6-6-6 6"/></svg></button><button class="iconbtn" data-act="rot-down" data-id="${id}" aria-label="Move ${esc(p.name)} down"${i === list.length - 1 ? ' disabled' : ''}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg></button></li>`; }).join('') || '<li class="muted">No associates in the rotation. Turn it on in each person\'s profile.</li>'}</ul>
+    ${list.length && st.assocOffPerWeekend > 0 ? `<p class="small muted" style="margin:8px 0 0">With ${list.length} ${list.length === 1 ? 'person' : 'people'} and ${st.assocOffPerWeekend} off each weekend, each associate gets a weekend off every ${Math.ceil(list.length / Math.min(st.assocOffPerWeekend, list.length))} weeks.</p>` : ''}
     <div class="confirm"><button class="btn small" data-act="rot-back">Previous person's turn</button><button class="btn small" data-act="rot-fwd">Next person's turn</button></div></div>`;
   h += `<div class="card"><h2>Week A / Week B</h2><p class="sub">For limits that alternate weekly, like someone who works Saturday one week and Wednesday the next.</p>
     <p style="margin:0 0 8px">The week of <b>${weekLabel(UI.week)}</b> is <b>Week ${ctx.par}</b>.</p><button class="btn small" data-act="parity-flip">Switch A and B</button></div>`;
@@ -1061,8 +1079,8 @@ function renderSheet() {
     h += `<div class="field"><label for="p-name">Name or nickname</label><input type="text" id="p-name" value="${esc(p.name)}" data-chg="p-name" maxlength="24" autocomplete="off"></div>`;
     h += `<div class="row"><div class="field" style="flex-basis:100%"><span class="flabel">Role</span><div class="seg roles"><button data-act="p-role" data-v="Associate" aria-pressed="${p.role === 'Associate'}">Associate</button><button data-act="p-role" data-v="MOD" aria-pressed="${p.role === 'MOD'}">${esc(RN('MOD'))}</button><button data-act="p-role" data-v="ABOM" aria-pressed="${p.role === 'ABOM'}">${esc(RN('ABOM'))}</button><button data-act="p-role" data-v="BOM" aria-pressed="${p.role === 'BOM'}">${esc(RN('BOM'))}</button></div></div>
       <div class="field"><span class="flabel">Status</span><div class="seg"><button data-act="p-type" data-v="FT" aria-pressed="${p.type === 'FT'}">Full-time</button><button data-act="p-type" data-v="PT" aria-pressed="${p.type === 'PT'}">Part-time</button></div></div></div>`;
-    if (MGR(p.role)) h += (NOHOURS(p.role) ? `<p class="small muted" style="margin:0 0 12px">${esc(plural(RN(p.role)))} count as ${/^[aeiou]/i.test(ANY()) ? 'an' : 'a'} ${esc(ANY())} for opening and closing coverage, and their hours aren't included in the team total. Set the days and hours they work with availability limits below.</p>` : '') + `<div class="field"><span class="flabel">Weekend group</span><div class="seg"><button data-act="p-group" data-v="A" aria-pressed="${p.modGroup === 'A'}">Group A</button><button data-act="p-group" data-v="B" aria-pressed="${p.modGroup === 'B'}">Group B</button><button data-act="p-group" data-v="none" aria-pressed="${p.modGroup === 'none'}">Own schedule</button></div></div>`
-      + (p.modGroup === 'none' ? '' : `<div class="field" style="max-width:260px"><label for="p-midoff">Weekday off in their working-weekend week</label><select id="p-midoff" data-chg="p-midoff">${[1, 2, 3, 4, 5].map(d => `<option value="${d}" ${(p.modMidOff == null ? 4 : +p.modMidOff) === d ? 'selected' : ''}>${DAYS_LONG[d]}</option>`).join('')}</select></div>`);
+    if (MGR(p.role)) h += (NOHOURS(p.role) ? `<p class="small muted" style="margin:0 0 12px">${esc(plural(RN(p.role)))} count as ${/^[aeiou]/i.test(ANY()) ? 'an' : 'a'} ${esc(ANY())} for opening and closing coverage, and their hours aren't included in the team total. Set the days and hours they work with availability limits below.</p>` : '') + `<div class="field"><span class="flabel">Weekend group</span><div class="seg roles">${groupLetters().map(g => `<button data-act="p-group" data-v="${g}" aria-pressed="${p.modGroup === g}">Group ${g}</button>`).join('')}<button data-act="p-group" data-v="none" aria-pressed="${p.modGroup === 'none'}">Own schedule</button></div></div>`
+      + (p.modGroup === 'none' ? '' : `<div class="field" style="max-width:260px"><label for="p-midoff">Weekday off the week after their weekend off</label><select id="p-midoff" data-chg="p-midoff">${[1, 2, 3, 4, 5].map(d => `<option value="${d}" ${(p.modMidOff == null ? 4 : +p.modMidOff) === d ? 'selected' : ''}>${DAYS_LONG[d]}</option>`).join('')}</select></div>`);
     else h += `<label class="check" style="margin-bottom:12px"><input type="checkbox" id="p-rot" data-chg="p-rot" ${inRot ? 'checked' : ''}> In the associate weekend-off rotation</label>`;
     h += `<div class="row"><div class="field"><label for="p-max">Max hours a week</label><input type="number" id="p-max" min="0" max="60" step="0.5" value="${p.maxHours}" data-chg="p-max"></div>
       <div class="field"><label for="p-days">${p.type === 'FT' ? 'Days worked a week' : 'Days a week to aim for'}</label><input type="number" id="p-days" min="0" max="7" value="${p.daysPerWeek}" data-chg="p-days"></div></div>`;
@@ -1209,7 +1227,7 @@ document.addEventListener('click', e => {
     case 'whats-new': openSheet({type: 'whatsnew', all: true}); break;
     case 'pref-nav': S.prefs = Object.assign({}, S.prefs, {navLabels: el.dataset.v !== 'off'}); save(); render(); break;
     case 'pref-theme': S.prefs = Object.assign({}, S.prefs, {theme: el.dataset.v}); save(); render(); break;
-    case 'mod-flip': S.settings.modFlip = !S.settings.modFlip; save(); render(); break;
+    case 'mod-shift': S.settings.modShift = (S.settings.modShift | 0) + (+el.dataset.v); save(); render(); break;
     case 'parity-flip': S.settings.parityFlip = !S.settings.parityFlip; save(); render(); break;
     case 'rot-back': S.settings.rotOffset = (S.settings.rotOffset | 0) - 1; save(); render(); break;
     case 'rot-fwd': S.settings.rotOffset = (S.settings.rotOffset | 0) + 1; save(); render(); break;
@@ -1250,6 +1268,7 @@ document.addEventListener('change', e => {
   const P = UI.sheet && UI.sheet.type === 'person' ? personById(UI.sheet.id) : null;
   const R = P && el.dataset.rid ? P.restrictions.find(r => r.id === el.dataset.rid) : null;
   const num = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
+  if (k === 'mod-groups') { S.settings.modGroups = Math.min(6, Math.max(2, parseInt(el.value, 10) || 2)); save(); render(); return; }
   if (k === 'allow-mid') { S.settings.allowMid = el.checked; save(); render(); return; }
   if (k === 'budget-default') { const v = parseFloat(el.value); S.settings.budget = v > 0 ? Math.min(5000, v) : null; save(); render(); return; }
   if (k === 'budget-week') { const wk = S.weeks[UI.week]; if (wk) { const v = parseFloat(el.value); if (el.value === '') delete wk.budget; else if (v >= 0) wk.budget = Math.min(5000, v); save(); render(); } return; }
